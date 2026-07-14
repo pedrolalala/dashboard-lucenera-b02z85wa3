@@ -37,18 +37,8 @@ BEGIN
   END IF;
 END $$;
 
--- 4. Create sync_history table
-CREATE TABLE IF NOT EXISTS public.sync_history (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  empresa_id UUID REFERENCES public.empresas(id) ON DELETE CASCADE,
-  origem TEXT NOT NULL,
-  tipo TEXT NOT NULL,
-  status TEXT NOT NULL,
-  registros_inseridos INT DEFAULT 0,
-  registros_erro INT DEFAULT 0,
-  mensagem TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- 4. Ensure sync_history has empresa_id column (table already exists in live DB without it)
+ALTER TABLE public.sync_history ADD COLUMN IF NOT EXISTS empresa_id UUID REFERENCES public.empresas(id) ON DELETE CASCADE;
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_sync_history_empresa ON public.sync_history(empresa_id);
