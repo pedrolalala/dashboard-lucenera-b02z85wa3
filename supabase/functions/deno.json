@@ -1,0 +1,20 @@
+{
+  "_versions": {
+    "salvar-projeto": 58,
+    "update-project": 49,
+    "chat-consulta": 46,
+    "chat-agent": 43,
+    "welcome-email": 44,
+    "generate-report": 65,
+    "sync-sharepoint": 42,
+    "sync-teams": 42,
+    "enviar-confirmacao-email": 42,
+    "parse-budget-pdf": 43,
+    "process-budget-pdf": 41,
+    "process-remittance": 36,
+    "process-billing-automation": 14,
+    "generate-cross-system-code": 11,
+    "exchange-cross-system-code": 11,
+    "sync-fechamentos-automatica": 8
+  }
+}
