@@ -56,8 +56,10 @@ CREATE POLICY "auth_empresas" ON public.empresas
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- 6. Create Dashboard Views
-CREATE OR REPLACE VIEW public.vw_projetos_dashboard AS
+DROP VIEW IF EXISTS public.vw_projetos_dashboard CASCADE;
+CREATE VIEW public.vw_projetos_dashboard AS
 SELECT empresa_id, count(*) as total_projetos FROM public.projetos GROUP BY empresa_id;
 
-CREATE OR REPLACE VIEW public.vw_vendas_por_projeto AS
+DROP VIEW IF EXISTS public.vw_vendas_por_projeto CASCADE;
+CREATE VIEW public.vw_vendas_por_projeto AS
 SELECT empresa_id, COALESCE(SUM(valor_total), 0) as total_vendas FROM public.projetos GROUP BY empresa_id;
