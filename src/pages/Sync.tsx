@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/use-auth'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
+import { cn } from '@/lib/utils'
 import { Cloud, FileText, Landmark, RefreshCw } from 'lucide-react'
 
 const modules = [
