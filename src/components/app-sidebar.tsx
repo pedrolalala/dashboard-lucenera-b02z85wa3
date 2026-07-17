@@ -1,5 +1,14 @@
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, RefreshCw, History, Settings, Building2 } from 'lucide-react'
+import {
+  LayoutDashboard,
+  Landmark,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Boxes,
+  RefreshCw,
+  History,
+  Settings,
+} from 'lucide-react'
 import {
   Sidebar,
   SidebarContent,
@@ -13,46 +22,73 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar'
 
-const items = [
-  { title: 'Dashboard', url: '/', icon: LayoutDashboard },
+const itemsFinanceiro = [
+  { title: 'Visão Geral', url: '/', icon: LayoutDashboard },
+  { title: 'Contas a Receber Foco', url: '/contas-receber-foco', icon: ArrowDownCircle },
+  { title: 'Contas a Pagar Foco', url: '/contas-pagar-foco', icon: ArrowUpCircle },
+]
+
+const itemsEstoque = [{ title: 'Estoque', url: '/estoque', icon: Boxes }]
+
+const itemsSistema = [
   { title: 'Sincronização', url: '/sync', icon: RefreshCw },
   { title: 'Histórico', url: '/logs', icon: History },
   { title: 'Configurações', url: '/settings', icon: Settings },
 ]
 
+type NavItem = { title: string; url: string; icon: React.ElementType }
+
+function NavGroup({ items, pathname }: { items: NavItem[]; pathname: string }) {
+  return (
+    <SidebarMenu>
+      {items.map((item) => (
+        <SidebarMenuItem key={item.title}>
+          <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>
+            <Link to={item.url} className="flex items-center gap-3 py-2 transition-colors">
+              <item.icon size={18} />
+              <span className="font-medium">{item.title}</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ))}
+    </SidebarMenu>
+  )
+}
+
 export function AppSidebar() {
-  const location = useLocation()
+  const { pathname } = useLocation()
 
   return (
     <Sidebar variant="inset">
       <SidebarHeader className="flex flex-row items-center gap-3 p-4 border-b border-sidebar-border/50">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-          <Building2 size={18} />
+          <Landmark size={18} />
         </div>
-        <span className="text-lg font-semibold tracking-tight">EmpresaSync</span>
+        <span className="text-lg font-semibold tracking-tight">Dashboard Lucenera</span>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs uppercase tracking-wider mt-4">
-            Menu Principal
+            Financeiro
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {items.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location.pathname === item.url}
-                    tooltip={item.title}
-                  >
-                    <Link to={item.url} className="flex items-center gap-3 py-2 transition-colors">
-                      <item.icon size={18} />
-                      <span className="font-medium">{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
+            <NavGroup items={itemsFinanceiro} pathname={pathname} />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel className="text-xs uppercase tracking-wider mt-2">
+            Operações
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <NavGroup items={itemsEstoque} pathname={pathname} />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel className="text-xs uppercase tracking-wider mt-2">
+            Sistema
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <NavGroup items={itemsSistema} pathname={pathname} />
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
