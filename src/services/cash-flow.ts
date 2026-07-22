@@ -72,6 +72,7 @@ export function filterFinanceiro(
   })
 }
 
+/** Filtro de clique (cross-filtering) — convive com o filtro Ano/Mês, aplicado por cima dele. */
 export function filterByTipoCusto(
   rows: FinanceiroRow[],
   tipoCusto: string | null,
@@ -139,6 +140,12 @@ export interface FluxoDiario {
   saldoAcumulado: number
 }
 
+/**
+ * `despesaRows` pode ser um subconjunto filtrado de `rows` (cross-filtering por
+ * tipo_custo) — a Receita por dia nunca é afetada por esse filtro, só a Despesa
+ * Operacional (ver decisão da SPEC-028 Fase 2: clique em categoria de despesa
+ * não zera Receita).
+ */
 export function computeFluxoDiario(
   rows: FinanceiroRow[],
   despesaRows: FinanceiroRow[] = rows,
@@ -306,6 +313,11 @@ export interface PontoEquilibrio {
   atingiuPontoEquilibrio: boolean
 }
 
+/**
+ * Ponto de equilíbrio simplificado (reunião 13-07-2026): "se eu vender menos
+ * que o custo fixo do mês, eu perco dinheiro". Não considera margem de
+ * contribuição por produto — é a leitura literal do que foi pedido.
+ */
 export function computePontoEquilibrio(rows: FinanceiroRow[]): PontoEquilibrio {
   const { fixo } = computeCustoFixoVariavel(rows)
   let receitaRealizada = 0

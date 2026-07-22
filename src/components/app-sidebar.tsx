@@ -23,9 +23,9 @@ import {
 } from '@/components/ui/sidebar'
 
 const itemsFinanceiro = [
-  { title: 'Visão Geral', url: '/', icon: LayoutDashboard },
-  { title: 'Contas a Receber Foco', url: '/contas-receber-foco', icon: ArrowDownCircle },
-  { title: 'Contas a Pagar Foco', url: '/contas-pagar-foco', icon: ArrowUpCircle },
+  { title: 'Fluxo de Caixa Realizado (Mês Atual)', url: '/', icon: LayoutDashboard },
+  { title: 'Agenda de Recebimentos', url: '/contas-receber-foco', icon: ArrowDownCircle },
+  { title: 'Agenda de Pagamentos', url: '/contas-pagar-foco', icon: ArrowUpCircle },
 ]
 
 const itemsEstoque = [{ title: 'Estoque', url: '/estoque', icon: Boxes }]

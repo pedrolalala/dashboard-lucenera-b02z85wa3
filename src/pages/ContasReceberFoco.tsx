@@ -10,8 +10,17 @@ import {
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import FilterChip from '@/components/FilterChip'
 import { formatCurrency, cn } from '@/lib/utils'
-import { Loader2, ShoppingCart, CalendarClock, HandCoins, Clock, AlertTriangle } from 'lucide-react'
+import {
+  Loader2,
+  ShoppingCart,
+  CalendarClock,
+  HandCoins,
+  Clock,
+  AlertTriangle,
+  Info,
+} from 'lucide-react'
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer } from 'recharts'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   fetchFinanceiro,
   computeKpisContasReceber,
@@ -38,11 +47,13 @@ function KpiCard({
   value,
   icon: Icon,
   tone = 'default',
+  info,
 }: {
   title: string
   value: string
   icon: typeof ShoppingCart
   tone?: 'default' | 'warning'
+  info?: string
 }) {
   return (
     <Card
@@ -54,7 +65,17 @@ function KpiCard({
       )}
     >
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+          {title}
+          {info && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3.5 w-3.5 text-muted-foreground/70 cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[240px]">{info}</TooltipContent>
+            </Tooltip>
+          )}
+        </CardTitle>
         <Icon className={cn('h-4 w-4', tone === 'warning' ? 'text-amber-500' : 'text-primary')} />
       </CardHeader>
       <CardContent>
@@ -123,7 +144,7 @@ export default function ContasReceberFoco() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-light uppercase tracking-widest text-foreground">
-            Contas a Receber Foco
+            Agenda de Recebimentos
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Segmentado por forma de recebimento (Descrição Apropriação).
@@ -186,6 +207,7 @@ export default function ContasReceberFoco() {
           value={formatCurrency(kpis.emAbertoReceber)}
           icon={Clock}
           tone="warning"
+          info="Valor acumulado total em aberto, não filtrado pelo período selecionado acima."
         />
       </div>
 

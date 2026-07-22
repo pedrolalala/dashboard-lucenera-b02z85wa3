@@ -1,252 +1,577 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { supabase } from '@/lib/supabase/client'
-import { useAuth } from '@/hooks/use-auth'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
+import FilterChip from '@/components/FilterChip'
 import { formatCurrency, cn } from '@/lib/utils'
 import {
-  Briefcase,
-  AlertTriangle,
+  Loader2,
   TrendingUp,
+  Wallet,
+  PiggyBank,
+  AlertTriangle,
+  Activity,
+  Scale,
   CheckCircle2,
-  RefreshCw,
   XCircle,
+  ArrowUpRight,
+  ArrowDownRight,
+  ShoppingCart,
 } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts'
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
-import { Button } from '@/components/ui/button'
-import { useToast } from '@/hooks/use-toast'
-
-interface KPI {
-  totalProjetos: number
-  totalVendas: number
-  alertas: number
-  statusSync: 'Sucesso' | 'Falha' | 'Pendente'
-}
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  ResponsiveContainer,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts'
+import {
+  fetchFinanceiro,
+  computeKpisVisaoGeral,
+  computeFluxoDiario,
+  computeCustoFixoVariavel,
+  computePontoEquilibrio,
+  distinctAnos,
+  filterFinanceiro,
+  filterByTipoCusto,
+  MESES,
+  type FinanceiroRow,
+} from '@/services/cash-flow'
+import { fetchNecessidadeCompra, computeGastoFuturoInevitavel } from '@/services/necessidade-compra'
 
 const chartConfig = {
-  registros: { label: 'Registros de Sync', color: 'hsl(var(--primary))' },
+  resultado: { label: 'Resultado Diário', color: 'hsl(var(--chart-1))' },
+  saldoAcumulado: { label: 'Saldo Acumulado', color: 'hsl(var(--chart-3))' },
+}
+
+type TipoCusto = 'fixo' | 'variavel' | 'outro'
+
+const CORES_CUSTO: Record<TipoCusto, string> = {
+  fixo: 'hsl(var(--chart-2))',
+  variavel: 'hsl(var(--chart-1))',
+  outro: 'hsl(var(--chart-4))',
+}
+
+const LABEL_CUSTO: Record<TipoCusto, string> = {
+  fixo: 'Fixo',
+  variavel: 'Variável',
+  outro: 'Outro',
+}
+
+/** Mês anterior ao (ano, mes) selecionado — só definido quando os dois filtros estão ativos. */
+function periodoAnterior(
+  ano: string | null,
+  mes: string | null,
+): { ano: string; mes: string } | null {
+  if (!ano || !mes) return null
+  const anoNum = Number(ano)
+  const mesNum = Number(mes)
+  const mesAnterior = mesNum === 1 ? 12 : mesNum - 1
+  const anoAnterior = mesNum === 1 ? anoNum - 1 : anoNum
+  return { ano: String(anoAnterior), mes: String(mesAnterior).padStart(2, '0') }
+}
+
+function DeltaBadge({
+  atual,
+  anterior,
+  invert = false,
+}: {
+  atual: number
+  anterior: number
+  invert?: boolean
+}) {
+  if (!anterior) return null
+  const pct = ((atual - anterior) / Math.abs(anterior)) * 100
+  const subiu = pct >= 0
+  const positivo = invert ? !subiu : subiu
+  const Icon = subiu ? ArrowUpRight : ArrowDownRight
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 text-xs font-medium',
+        positivo ? 'text-emerald-500' : 'text-destructive',
+      )}
+    >
+      <Icon className="h-3 w-3" />
+      {Math.abs(pct).toFixed(1)}% vs mês anterior
+    </span>
+  )
+}
+
+function KpiCard({
+  title,
+  value,
+  icon: Icon,
+  highlight,
+  delta,
+}: {
+  title: string
+  value: string
+  icon: typeof Wallet
+  highlight?: boolean
+  delta?: React.ReactNode
+}) {
+  return (
+    <Card
+      className={cn(
+        'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md',
+        highlight ? 'border-primary/60 shadow-md' : 'border-border/60 shadow-sm',
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        <Icon className={highlight ? 'h-4 w-4 text-primary' : 'h-4 w-4 text-muted-foreground'} />
+      </CardHeader>
+      <CardContent>
+        <div className={highlight ? 'text-2xl font-bold text-primary' : 'text-2xl font-bold'}>
+          {value}
+        </div>
+        {delta && <div className="mt-1">{delta}</div>}
+      </CardContent>
+    </Card>
+  )
 }
 
 export default function Index() {
-  const { empresaId } = useAuth()
-  const { toast } = useToast()
-  const [kpi, setKpi] = useState<KPI>({
-    totalProjetos: 0,
-    totalVendas: 0,
-    alertas: 0,
-    statusSync: 'Pendente',
-  })
-  const [chartData, setChartData] = useState<any[]>([])
-  const [syncingAll, setSyncingAll] = useState(false)
-
-  const fetchData = async () => {
-    if (!empresaId) return
-
-    const [projetosRes, vendasRes, logsRes, alertasRes] = await Promise.all([
-      supabase
-        .from('vw_projetos_dashboard')
-        .select('total_projetos')
-        .eq('empresa_id', empresaId)
-        .single(),
-      supabase
-        .from('vw_vendas_por_projeto')
-        .select('total_vendas')
-        .eq('empresa_id', empresaId)
-        .single(),
-      supabase
-        .from('sync_history')
-        .select('*')
-        .eq('empresa_id', empresaId)
-        .order('created_at', { ascending: false })
-        .limit(50),
-      supabase
-        .from('sync_history')
-        .select('id', { count: 'exact' })
-        .eq('empresa_id', empresaId)
-        .eq('status', 'Falha')
-        .gte('created_at', new Date(Date.now() - 86400000).toISOString()),
-    ])
-
-    setKpi({
-      totalProjetos: projetosRes.data?.total_projetos || 0,
-      totalVendas: vendasRes.data?.total_vendas || 0,
-      alertas: alertasRes.count || 0,
-      statusSync: (logsRes.data?.[0]?.status as any) || 'Pendente',
-    })
-
-    if (logsRes.data) {
-      const grouped = logsRes.data.reduce((acc: any, log: any) => {
-        const date = new Date(log.created_at).toLocaleDateString('pt-BR', {
-          day: '2-digit',
-          month: 'short',
-        })
-        if (!acc[date]) acc[date] = 0
-        acc[date] += log.registros_inseridos || 0
-        return acc
-      }, {})
-      setChartData(
-        Object.entries(grouped)
-          .map(([date, registros]) => ({ date, registros }))
-          .reverse(),
-      )
-    }
-  }
+  const [rows, setRows] = useState<FinanceiroRow[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  // SPEC-041: default no mês/ano atuais ("Fluxo de Caixa Realizado (Mês Atual)"),
+  // mas os Selects abaixo continuam editáveis — usuário pode navegar para outros períodos.
+  const [ano, setAno] = useState<string | null>(String(new Date().getFullYear()))
+  const [mes, setMes] = useState<string | null>(String(new Date().getMonth() + 1).padStart(2, '0'))
+  const [tipoCustoSelecionado, setTipoCustoSelecionado] = useState<TipoCusto | null>(null)
+  const [gastoFuturoInevitavel, setGastoFuturoInevitavel] = useState<number | null>(null)
 
   useEffect(() => {
-    fetchData()
-    const channel = supabase
-      .channel('dashboard_updates')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sync_history' }, () =>
-        fetchData(),
-      )
-      .subscribe()
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [empresaId])
+    fetchFinanceiro()
+      .then(setRows)
+      .catch((e: any) => setError(e?.message || 'Não foi possível carregar os dados financeiros.'))
+      .finally(() => setIsLoading(false))
+  }, [])
 
-  const handleSyncAll = async () => {
-    setSyncingAll(true)
-    try {
-      await Promise.all([
-        supabase.functions.invoke('sync-sharepoint'),
-        supabase.functions.invoke('sync-teams'),
-        supabase.functions.invoke('sync-fechamentos-automatica'),
-      ])
-      await supabase.from('sync_history').insert({
-        empresa_id: empresaId,
-        origem: 'Geral',
-        tipo: 'Sync All Manual',
-        status: 'Sucesso',
-        mensagem: 'Sincronização global concluída.',
-        registros_inseridos: 100,
-        registros_erro: 0,
-      })
-      toast({ title: 'Sincronização global iniciada com sucesso.' })
-      fetchData()
-    } catch (e: any) {
-      toast({ title: 'Erro', description: e.message, variant: 'destructive' })
-    } finally {
-      setSyncingAll(false)
-    }
-  }
+  useEffect(() => {
+    fetchNecessidadeCompra()
+      .then((necessidadeRows) => setGastoFuturoInevitavel(computeGastoFuturoInevitavel(necessidadeRows)))
+      .catch(() => setGastoFuturoInevitavel(null))
+  }, [])
 
-  const kpis = useMemo(
-    () => [
-      {
-        title: 'Projetos Ativos',
-        value: kpi.totalProjetos,
-        icon: Briefcase,
-        color: 'text-blue-500',
-      },
-      {
-        title: 'Vendas Totais',
-        value: formatCurrency(kpi.totalVendas),
-        icon: TrendingUp,
-        color: 'text-emerald-500',
-      },
-      {
-        title: 'Última Sync',
-        value: kpi.statusSync,
-        icon: kpi.statusSync === 'Sucesso' ? CheckCircle2 : XCircle,
-        color: kpi.statusSync === 'Sucesso' ? 'text-emerald-500' : 'text-destructive',
-      },
-      {
-        title: 'Alertas (24h)',
-        value: kpi.alertas,
-        icon: AlertTriangle,
-        color: kpi.alertas > 0 ? 'text-warning' : 'text-muted-foreground',
-      },
-    ],
-    [kpi],
+  const anos = useMemo(() => distinctAnos(rows), [rows])
+  const filtradas = useMemo(() => filterFinanceiro(rows, ano, mes), [rows, ano, mes])
+  const filtradasPorCategoria = useMemo(
+    () => filterByTipoCusto(filtradas, tipoCustoSelecionado),
+    [filtradas, tipoCustoSelecionado],
   )
 
+  // Receitas Realizadas e Resultado Operacional sempre no total geral (decisão
+  // do usuário 16/07 — clique numa categoria de despesa não zera Receitas).
+  const kpis = useMemo(() => computeKpisVisaoGeral(filtradas), [filtradas])
+  const kpisDespesaFiltrada = useMemo(
+    () => computeKpisVisaoGeral(filtradasPorCategoria),
+    [filtradasPorCategoria],
+  )
+  const fluxo = useMemo(
+    () => computeFluxoDiario(filtradas, filtradasPorCategoria),
+    [filtradas, filtradasPorCategoria],
+  )
+  const custoFixoVariavel = useMemo(() => computeCustoFixoVariavel(filtradas), [filtradas])
+  const pontoEquilibrio = useMemo(() => computePontoEquilibrio(filtradas), [filtradas])
+  const dadosCustoFixoVariavel = useMemo(
+    () =>
+      (['fixo', 'variavel', 'outro'] as const)
+        .map((chave) => ({
+          chave,
+          nome: LABEL_CUSTO[chave],
+          valor: custoFixoVariavel[chave],
+          cor: CORES_CUSTO[chave],
+        }))
+        .filter((d) => d.valor > 0),
+    [custoFixoVariavel],
+  )
+
+  // Comparativo vs mês anterior — só calculado quando Ano + Mês estão selecionados
+  // (evita comparar um agregado "todos os meses" com um único mês, o que não faria sentido).
+  const anterior = useMemo(() => periodoAnterior(ano, mes), [ano, mes])
+  const kpisAnterior = useMemo(() => {
+    if (!anterior) return null
+    return computeKpisVisaoGeral(filterFinanceiro(rows, anterior.ano, anterior.mes))
+  }, [rows, anterior])
+
+  const margemOperacional =
+    kpis.receitasRealizadas > 0 ? (kpis.resultadoOperacional / kpis.receitasRealizadas) * 100 : null
+
+  const toggleTipoCusto = (chave: TipoCusto) =>
+    setTipoCustoSelecionado((prev) => (prev === chave ? null : chave))
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card className="border-destructive/30">
+        <CardContent className="p-10 flex flex-col items-center text-center gap-2">
+          <AlertTriangle className="w-8 h-8 text-destructive" />
+          <p className="font-medium">Erro ao carregar dados financeiros</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Visão Geral</h2>
-          <p className="text-muted-foreground">Métricas e status das integrações da sua empresa.</p>
+          <h1 className="text-2xl font-light uppercase tracking-widest text-foreground">
+            Fluxo de Caixa Realizado (Mês Atual)
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Fluxo de caixa realizado — dados ao vivo do Supabase (v_financeiro_realizado).
+          </p>
         </div>
-        <Button onClick={handleSyncAll} disabled={syncingAll} className="gap-2 bg-primary">
-          <RefreshCw className={cn('h-4 w-4', syncingAll && 'animate-spin')} />
-          Sincronizar Tudo
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {tipoCustoSelecionado && (
+            <FilterChip
+              label={LABEL_CUSTO[tipoCustoSelecionado]}
+              onClear={() => setTipoCustoSelecionado(null)}
+            />
+          )}
+          <Select value={ano ?? 'todos'} onValueChange={(v) => setAno(v === 'todos' ? null : v)}>
+            <SelectTrigger className="w-[120px] text-foreground">
+              <SelectValue placeholder="Ano" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os anos</SelectItem>
+              {anos.map((a) => (
+                <SelectItem key={a} value={a}>
+                  {a}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={mes ?? 'todos'} onValueChange={(v) => setMes(v === 'todos' ? null : v)}>
+            <SelectTrigger className="w-[150px] text-foreground">
+              <SelectValue placeholder="Mês" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os meses</SelectItem>
+              {MESES.map((label, i) => (
+                <SelectItem key={label} value={String(i + 1).padStart(2, '0')}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {kpis.map((k, i) => (
-          <Card key={i} className="border-border/50 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{k.title}</CardTitle>
-              <k.icon className={cn('h-4 w-4', k.color)} />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{k.value}</div>
-            </CardContent>
-          </Card>
-        ))}
+      {/* Hero: o dado mais importante para a Diretoria (bottom-line) lido primeiro. */}
+      <Card className="border-2 border-primary/50 bg-gradient-to-br from-primary/10 via-card to-card shadow-lg transition-all duration-200 hover:shadow-xl">
+        <CardContent className="p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary/15">
+              <Activity className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                Resultado Operacional
+              </p>
+              <p className="text-4xl font-bold text-primary mt-1">
+                {formatCurrency(kpis.resultadoOperacional)}
+              </p>
+              <div className="flex items-center gap-3 mt-1.5">
+                {margemOperacional !== null && (
+                  <span className="text-xs text-muted-foreground">
+                    Margem operacional:{' '}
+                    <span className="font-semibold text-foreground">
+                      {margemOperacional.toFixed(1)}%
+                    </span>
+                  </span>
+                )}
+                {kpisAnterior && (
+                  <DeltaBadge
+                    atual={kpis.resultadoOperacional}
+                    anterior={kpisAnterior.resultadoOperacional}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <KpiCard
+          title="Receitas Realizadas"
+          value={formatCurrency(kpis.receitasRealizadas)}
+          icon={TrendingUp}
+          delta={
+            kpisAnterior && (
+              <DeltaBadge
+                atual={kpis.receitasRealizadas}
+                anterior={kpisAnterior.receitasRealizadas}
+              />
+            )
+          }
+        />
+        <KpiCard
+          title={
+            tipoCustoSelecionado
+              ? `Despesa Operacional (${LABEL_CUSTO[tipoCustoSelecionado]})`
+              : 'Despesa Operacional Total'
+          }
+          value={formatCurrency(kpisDespesaFiltrada.despesaOperacionalTotal)}
+          icon={Wallet}
+          highlight={!!tipoCustoSelecionado}
+          delta={
+            !tipoCustoSelecionado &&
+            kpisAnterior && (
+              <DeltaBadge
+                atual={kpis.despesaOperacionalTotal}
+                anterior={kpisAnterior.despesaOperacionalTotal}
+                invert
+              />
+            )
+          }
+        />
+        <KpiCard
+          title="Distribuição de Lucro"
+          value={formatCurrency(kpis.distribuicaoLucroTotal)}
+          icon={PiggyBank}
+          delta={
+            kpisAnterior && (
+              <DeltaBadge
+                atual={kpis.distribuicaoLucroTotal}
+                anterior={kpisAnterior.distribuicaoLucroTotal}
+              />
+            )
+          }
+        />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-7">
-        <Card className="md:col-span-5 border-border/50 shadow-sm">
-          <CardHeader>
-            <CardTitle>Atividade Recente de Sincronização</CardTitle>
-          </CardHeader>
-          <CardContent className="pl-2">
-            <ChartContainer config={chartConfig} className="h-[300px] w-full">
+      {/*
+        SPEC-041 (reunião 21/07/2026, Filippo): "Necessidade de Compra" é um gasto
+        futuro inevitável — nunca deve ser somado ao Resultado Operacional/KPIs
+        realizados acima. Card separado e com tom visual distinto (violeta) para
+        deixar essa distinção óbvia.
+      */}
+      <Card className="border-2 border-violet-500/40 bg-violet-500/5 shadow-sm transition-all duration-200 hover:shadow-md">
+        <CardContent className="p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/15">
+              <ShoppingCart className="h-5 w-5 text-violet-500" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                Necessidade de Compra (Gasto Futuro Inevitável)
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Déficit líquido de estoque a repor, valorizado ao custo — separado do fluxo de
+                caixa realizado acima.
+              </p>
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-violet-500">
+            {gastoFuturoInevitavel === null ? '—' : formatCurrency(gastoFuturoInevitavel)}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card
+        className={cn(
+          'border-2 shadow-sm transition-colors duration-200',
+          pontoEquilibrio.atingiuPontoEquilibrio
+            ? 'border-emerald-500/50 bg-emerald-500/5'
+            : 'border-destructive/50 bg-destructive/5',
+        )}
+      >
+        <CardContent className="p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            {pontoEquilibrio.atingiuPontoEquilibrio ? (
+              <CheckCircle2 className="h-8 w-8 text-emerald-500 shrink-0" />
+            ) : (
+              <XCircle className="h-8 w-8 text-destructive shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                <Scale className="h-3.5 w-3.5" /> Ponto de Equilíbrio (Custo Fixo)
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Receita precisa cobrir {formatCurrency(pontoEquilibrio.custoFixo)} de custo fixo no
+                período — aproximação simplificada, não considera margem por produto. Sempre no
+                total geral, independente do filtro de categoria.
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p
+              className={cn(
+                'text-2xl font-bold',
+                pontoEquilibrio.atingiuPontoEquilibrio ? 'text-emerald-500' : 'text-destructive',
+              )}
+            >
+              {pontoEquilibrio.resultado >= 0 ? '+' : ''}
+              {formatCurrency(pontoEquilibrio.resultado)}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {pontoEquilibrio.atingiuPontoEquilibrio
+                ? 'Acima do ponto de equilíbrio'
+                : 'Abaixo do ponto de equilíbrio'}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base">Custo Operacional: Fixo × Variável</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {dadosCustoFixoVariavel.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-16">
+              Sem dados de custo operacional para este período.
+            </p>
+          ) : (
+            <ChartContainer config={chartConfig} className="h-[260px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorReg" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--color-registros)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="var(--color-registros)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.5} />
-                  <XAxis
-                    dataKey="date"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <YAxis tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 12 }} />
+                <PieChart>
+                  <Pie
+                    data={dadosCustoFixoVariavel}
+                    dataKey="valor"
+                    nameKey="nome"
+                    innerRadius={55}
+                    outerRadius={90}
+                    paddingAngle={2}
+                    cursor="pointer"
+                    onClick={(d: any) => {
+                      const chave = d?.chave as TipoCusto | undefined
+                      if (chave) toggleTipoCusto(chave)
+                    }}
+                  >
+                    {dadosCustoFixoVariavel.map((d) => (
+                      <Cell
+                        key={d.chave}
+                        fill={d.cor}
+                        className="transition-opacity duration-200"
+                        opacity={
+                          tipoCustoSelecionado && tipoCustoSelecionado !== d.chave ? 0.35 : 1
+                        }
+                        stroke={
+                          tipoCustoSelecionado === d.chave ? 'hsl(var(--foreground))' : undefined
+                        }
+                        strokeWidth={tipoCustoSelecionado === d.chave ? 2 : 0}
+                      />
+                    ))}
+                  </Pie>
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <Area
-                    type="monotone"
-                    dataKey="registros"
-                    stroke="var(--color-registros)"
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#colorReg)"
-                  />
-                </AreaChart>
+                  <Legend />
+                </PieChart>
               </ResponsiveContainer>
             </ChartContainer>
-          </CardContent>
-        </Card>
+          )}
+          <p className="text-[11px] text-muted-foreground text-center mt-2">
+            Clique numa fatia para filtrar a Despesa Operacional Total e o fluxo diário por esse
+            tipo de custo. Classificação Fixo/Variável por centro de custo é um default proposto
+            (reunião 13/07/2026), pendente de validação.
+          </p>
+        </CardContent>
+      </Card>
 
-        <Card className="md:col-span-2 border-border/50 shadow-sm">
-          <CardHeader>
-            <CardTitle>Módulos Ativos</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {['SharePoint', 'Microsoft Teams', 'Financeiro Básico'].map((mod, i) => (
-              <div key={i} className="flex items-center gap-4">
-                <div className="relative flex h-3 w-3">
-                  <span className="animate-pulse-ring absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium leading-none">{mod}</span>
-                  <span className="text-xs text-muted-foreground mt-1">Conectado via API</span>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base">Saldo Acumulado Realizado (Operacional)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer config={chartConfig} className="h-[320px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={fluxo} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorSaldo" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--color-saldoAcumulado)" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="var(--color-saldoAcumulado)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
+                <XAxis
+                  dataKey="dia"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 11 }}
+                  minTickGap={40}
+                />
+                <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Area
+                  type="monotone"
+                  dataKey="saldoAcumulado"
+                  stroke="var(--color-saldoAcumulado)"
+                  strokeWidth={2}
+                  fill="url(#colorSaldo)"
+                  animationDuration={300}
+                />
+                <Legend />
+              </AreaChart>
+            </ResponsiveContainer>
+          </ChartContainer>
+          {tipoCustoSelecionado && (
+            <p className="text-[11px] text-muted-foreground text-center mt-2">
+              Despesa considera só "{LABEL_CUSTO[tipoCustoSelecionado]}" — Receita permanece no
+              total geral.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base">
+            Resultado Diário (Receita − Despesa Operacional)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer config={chartConfig} className="h-[240px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={fluxo} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
+                <XAxis
+                  dataKey="dia"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fontSize: 11 }}
+                  minTickGap={40}
+                />
+                <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Area
+                  type="monotone"
+                  dataKey="resultado"
+                  stroke="var(--color-resultado)"
+                  strokeWidth={2}
+                  fill="var(--color-resultado)"
+                  fillOpacity={0.15}
+                  animationDuration={300}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </ChartContainer>
+        </CardContent>
+      </Card>
     </div>
   )
 }
