@@ -6,6 +6,7 @@ interface AuthContextType {
   user: User | null
   session: Session | null
   empresaId: string | null
+  hasAccess: boolean | null
   signUp: (email: string, password: string) => Promise<{ error: any }>
   signIn: (email: string, password: string) => Promise<{ error: any }>
   signOut: () => Promise<{ error: any }>
@@ -24,6 +25,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [empresaId, setEmpresaId] = useState<string | null>(null)
+  const [hasAccess, setHasAccess] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchEmpresaId = async (userId: string) => {
@@ -35,6 +37,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (data?.empresa_id) setEmpresaId(data.empresa_id)
   }
 
+  // SPEC-063 — este app não checava nenhuma permissão granular do Hub, só
+  // exigia estar logado (qualquer login válido do ecossistema). Consulta a
+  // mesma RPC que o Hub usa (hub_pode_executar, SPEC-006) para o sistema
+  // inteiro ('dashboard-financeiro', sem módulo/ação específicos).
+  const checkAccess = async (userId: string) => {
+    const { data } = await supabase.rpc('hub_pode_executar', {
+      p_usuario_id: userId,
+      p_system_slug: 'dashboard-financeiro',
+      p_modulo_chave: null,
+      p_acao: null,
+    })
+    setHasAccess(Boolean(data))
+  }
+
   useEffect(() => {
     const {
       data: { subscription },
@@ -42,9 +58,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
-        fetchEmpresaId(session.user.id).then(() => setLoading(false))
+        Promise.all([fetchEmpresaId(session.user.id), checkAccess(session.user.id)]).then(() =>
+          setLoading(false),
+        )
       } else {
         setEmpresaId(null)
+        setHasAccess(null)
         setLoading(false)
       }
     })
@@ -53,7 +72,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) {
-        fetchEmpresaId(session.user.id).then(() => setLoading(false))
+        Promise.all([fetchEmpresaId(session.user.id), checkAccess(session.user.id)]).then(() =>
+          setLoading(false),
+        )
       } else {
         setLoading(false)
       }
@@ -82,7 +103,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, empresaId, signUp, signIn, signOut, loading }}>
+    <AuthContext.Provider
+      value={{ user, session, empresaId, hasAccess, signUp, signIn, signOut, loading }}
+    >
       {children}
     </AuthContext.Provider>
   )
