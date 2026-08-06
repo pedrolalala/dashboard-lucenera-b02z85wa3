@@ -28,6 +28,7 @@ import {
   distinctAnos,
   filterFinanceiro,
   filterByDescricao,
+  filterByPerfil,
   MESES,
   type FinanceiroRow,
 } from '@/services/cash-flow'
@@ -91,8 +92,10 @@ export default function ContasReceberFoco() {
   const [rows, setRows] = useState<FinanceiroRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [ano, setAno] = useState<string | null>(null)
-  const [mes, setMes] = useState<string | null>(null)
+  // SPEC-041: default no mês/ano atuais, mas os Selects abaixo continuam editáveis.
+  const [ano, setAno] = useState<string | null>(String(new Date().getFullYear()))
+  const [mes, setMes] = useState<string | null>(String(new Date().getMonth() + 1).padStart(2, '0'))
+  const [perfil, setPerfil] = useState<string | null>(null)
   const [apropriacaoSelecionada, setApropriacaoSelecionada] = useState<string | null>(null)
 
   useEffect(() => {
@@ -103,7 +106,11 @@ export default function ContasReceberFoco() {
   }, [])
 
   const anos = useMemo(() => distinctAnos(rows), [rows])
-  const filtradas = useMemo(() => filterFinanceiro(rows, ano, mes), [rows, ano, mes])
+  const filtradasPorPeriodo = useMemo(() => filterFinanceiro(rows, ano, mes), [rows, ano, mes])
+  const filtradas = useMemo(
+    () => filterByPerfil(filtradasPorPeriodo, perfil),
+    [filtradasPorPeriodo, perfil],
+  )
   const filtradasPorCategoria = useMemo(
     () => filterByDescricao(filtradas, apropriacaoSelecionada),
     [filtradas, apropriacaoSelecionada],
@@ -112,6 +119,9 @@ export default function ContasReceberFoco() {
     () => computeKpisContasReceber(filtradasPorCategoria),
     [filtradasPorCategoria],
   )
+  // "Em Aberto" é sempre o total acumulado, nunca filtrado por Ano/Mês (decisão
+  // reafirmada 22/07/2026 — evita a sensação de que os números "não batem").
+  const kpisTotal = useMemo(() => computeKpisContasReceber(rows), [rows])
   const apropriacao = useMemo(() => groupReceitaPorApropriacao(filtradas), [filtradas])
 
   const toggleApropriacao = (descricao: string) => {
@@ -157,6 +167,19 @@ export default function ContasReceberFoco() {
               onClear={() => setApropriacaoSelecionada(null)}
             />
           )}
+          <Select
+            value={perfil ?? 'todos'}
+            onValueChange={(v) => setPerfil(v === 'todos' ? null : v)}
+          >
+            <SelectTrigger className="w-[140px] text-foreground">
+              <SelectValue placeholder="Perfil" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos</SelectItem>
+              <SelectItem value="ribeirao">Ribeirão</SelectItem>
+              <SelectItem value="sao_paulo">São Paulo</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={ano ?? 'todos'} onValueChange={(v) => setAno(v === 'todos' ? null : v)}>
             <SelectTrigger className="w-[120px] text-foreground">
               <SelectValue placeholder="Ano" />
@@ -204,7 +227,7 @@ export default function ContasReceberFoco() {
         />
         <KpiCard
           title="Em Aberto (Receber)"
-          value={formatCurrency(kpis.emAbertoReceber)}
+          value={formatCurrency(kpisTotal.emAbertoReceber)}
           icon={Clock}
           tone="warning"
           info="Valor acumulado total em aberto, não filtrado pelo período selecionado acima."

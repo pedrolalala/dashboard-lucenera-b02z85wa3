@@ -31,6 +31,7 @@ import {
   distinctAnos,
   filterFinanceiro,
   filterByDescSubGrupo,
+  filterByPerfil,
   MESES,
   type FinanceiroRow,
 } from '@/services/cash-flow'
@@ -89,8 +90,10 @@ export default function ContasPagarFoco() {
   const [rows, setRows] = useState<FinanceiroRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [ano, setAno] = useState<string | null>(null)
-  const [mes, setMes] = useState<string | null>(null)
+  // SPEC-041: default no mês/ano atuais, mas os Selects abaixo continuam editáveis.
+  const [ano, setAno] = useState<string | null>(String(new Date().getFullYear()))
+  const [mes, setMes] = useState<string | null>(String(new Date().getMonth() + 1).padStart(2, '0'))
+  const [perfil, setPerfil] = useState<string | null>(null)
   const [subGrupoSelecionado, setSubGrupoSelecionado] = useState<string | null>(null)
 
   useEffect(() => {
@@ -101,12 +104,19 @@ export default function ContasPagarFoco() {
   }, [])
 
   const anos = useMemo(() => distinctAnos(rows), [rows])
-  const filtradas = useMemo(() => filterFinanceiro(rows, ano, mes), [rows, ano, mes])
+  const filtradasPorPeriodo = useMemo(() => filterFinanceiro(rows, ano, mes), [rows, ano, mes])
+  const filtradas = useMemo(
+    () => filterByPerfil(filtradasPorPeriodo, perfil),
+    [filtradasPorPeriodo, perfil],
+  )
   const filtradasPorCategoria = useMemo(
     () => filterByDescSubGrupo(filtradas, subGrupoSelecionado),
     [filtradas, subGrupoSelecionado],
   )
   const kpis = useMemo(() => computeKpisContasPagar(filtradasPorCategoria), [filtradasPorCategoria])
+  // "Em Aberto" é sempre o total acumulado, nunca filtrado por Ano/Mês (decisão
+  // reafirmada 22/07/2026 — evita a sensação de que os números "não batem").
+  const kpisTotal = useMemo(() => computeKpisContasPagar(rows), [rows])
   const subGrupos = useMemo(() => groupDespesaPorSubGrupo(filtradas), [filtradas])
   const previsto = useMemo(
     () => computePrevistoPagarPorDia(filtradasPorCategoria).slice(0, 60),
@@ -151,6 +161,19 @@ export default function ContasPagarFoco() {
           {subGrupoSelecionado && (
             <FilterChip label={subGrupoSelecionado} onClear={() => setSubGrupoSelecionado(null)} />
           )}
+          <Select
+            value={perfil ?? 'todos'}
+            onValueChange={(v) => setPerfil(v === 'todos' ? null : v)}
+          >
+            <SelectTrigger className="w-[140px] text-foreground">
+              <SelectValue placeholder="Perfil" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos</SelectItem>
+              <SelectItem value="ribeirao">Ribeirão</SelectItem>
+              <SelectItem value="sao_paulo">São Paulo</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={ano ?? 'todos'} onValueChange={(v) => setAno(v === 'todos' ? null : v)}>
             <SelectTrigger className="w-[120px] text-foreground">
               <SelectValue placeholder="Ano" />
@@ -193,7 +216,7 @@ export default function ContasPagarFoco() {
         />
         <KpiCard
           title="Em Aberto (Pagar)"
-          value={formatCurrency(kpis.emAbertoPagar)}
+          value={formatCurrency(kpisTotal.emAbertoPagar)}
           icon={Clock}
           tone="warning"
           info="Valor acumulado total em aberto, não filtrado pelo período selecionado acima."
