@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase/client'
+import { consumeCodeFromUrl } from '@/lib/cross-system-auth'
 
 interface AuthContextType {
   user: User | null
@@ -52,35 +53,52 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        Promise.all([fetchEmpresaId(session.user.id), checkAccess(session.user.id)]).then(() =>
-          setLoading(false),
-        )
+    let mounted = true
+    let initialized = false
+
+    const resolveSession = async (nextSession: Session | null) => {
+      if (!mounted) return
+      setSession(nextSession)
+      setUser(nextSession?.user ?? null)
+      if (nextSession?.user) {
+        await Promise.all([fetchEmpresaId(nextSession.user.id), checkAccess(nextSession.user.id)])
       } else {
         setEmpresaId(null)
         setHasAccess(null)
-        setLoading(false)
       }
+      if (mounted) setLoading(false)
+    }
+
+    // Acesso vindo da Central chega com ?sso_code na URL. onAuthStateChange
+    // dispara um evento inicial com a sessão que já existia ANTES da troca
+    // desse código terminar (normalmente nula, numa aba nova) — se esse
+    // evento resolvesse "loading" pra false direto, o ProtectedRoute achava
+    // que ninguém tinha logado e mandava pra tela de login antes da troca
+    // terminar, fazendo o clique na Central "bugar". Por isso a resolução
+    // real só acontece depois do consumeCodeFromUrl + getSession abaixo;
+    // este listener só mantém sessão/usuário em dia para eventos depois
+    // disso (login manual, logout, refresh de token).
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!initialized) return
+      resolveSession(nextSession)
     })
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        Promise.all([fetchEmpresaId(session.user.id), checkAccess(session.user.id)]).then(() =>
-          setLoading(false),
-        )
-      } else {
-        setLoading(false)
-      }
-    })
+    consumeCodeFromUrl('dashboard-financeiro')
+      .catch(() => {})
+      .finally(async () => {
+        const {
+          data: { session: initialSession },
+        } = await supabase.auth.getSession()
+        initialized = true
+        await resolveSession(initialSession)
+      })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   const signUp = async (email: string, password: string) => {
