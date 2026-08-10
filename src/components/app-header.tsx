@@ -40,7 +40,7 @@ export function AppHeader() {
           title="Voltar para a Central Lucenera"
           asChild
         >
-          <a href="https://central-lucenera.goskip.app/">
+          <a href="https://central-lucenera-dashboard-1c9ba.goskip.app/dashboard">
             <Building2 size={18} />
           </a>
         </Button>
