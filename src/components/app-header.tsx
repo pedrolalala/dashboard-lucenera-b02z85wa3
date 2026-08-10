@@ -1,5 +1,5 @@
 import { useLocation } from 'react-router-dom'
-import { Bell, LogOut, User } from 'lucide-react'
+import { Bell, Building2, LogOut, User } from 'lucide-react'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,17 @@ export function AppHeader() {
         <h1 className="text-sm font-semibold tracking-tight text-foreground">{title}</h1>
       </div>
       <div className="flex items-center gap-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground"
+          title="Voltar para a Central Lucenera"
+          asChild
+        >
+          <a href="https://central-lucenera.goskip.app/">
+            <Building2 size={18} />
+          </a>
+        </Button>
         <Button
           variant="ghost"
           size="icon"
