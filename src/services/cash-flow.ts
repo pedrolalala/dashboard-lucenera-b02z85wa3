@@ -13,10 +13,12 @@ export interface FinanceiroRow {
   vl_pago: number
   vl_parcela: number
   vl_desconto: number
+  /** SPEC-064: rótulo Ribeirão/São Paulo, classificado manualmente em /transacoes. */
+  perfil: string | null
 }
 
 const COLUNAS =
-  'tipo,descricao,desc_sub_grupo,desc_grupo,natureza,tipo_custo,status_pago,dt_pagamento,dt_vencimento,vl_pago,vl_parcela,vl_desconto'
+  'tipo,descricao,desc_sub_grupo,desc_grupo,natureza,tipo_custo,status_pago,dt_pagamento,dt_vencimento,vl_pago,vl_parcela,vl_desconto,perfil'
 
 const PAGE_SIZE = 1000
 
@@ -97,8 +99,20 @@ export function filterByDescricao(
   return rows.filter((r) => r.descricao === descricao)
 }
 
+/** SPEC-064: filtro Ribeirão/São Paulo/Todos — não afeta linhas sem classificação quando "Todos". */
+export function filterByPerfil(rows: FinanceiroRow[], perfil: string | null): FinanceiroRow[] {
+  if (!perfil) return rows
+  return rows.filter((r) => r.perfil === perfil)
+}
+
+// status_pago: 0=ABERTO, 1=PAGO, 2=CANCELADO. Cancelado nunca deve contar
+// como despesa/receita nem como "em aberto" — a view v_financeiro_realizado
+// ja exclui status_pago=2 na fonte (migration 20260819_121), mas o `=== 0`
+// aqui fica explícito mesmo assim: nunca reintroduzir `|| status_pago === 2`
+// nesse cálculo. Achado em produção, 2026-08-18 (Contas a Pagar/Receber
+// mostrando duplicata cancelada como se fosse dívida em aberto).
 const realizado = (r: FinanceiroRow) => r.status_pago === 1
-const aberto = (r: FinanceiroRow) => r.status_pago === 0 || r.status_pago === 2
+const aberto = (r: FinanceiroRow) => r.status_pago === 0
 const valorAberto = (r: FinanceiroRow) => r.vl_parcela - r.vl_desconto
 
 export interface KpisVisaoGeral {
