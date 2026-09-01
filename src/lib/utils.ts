@@ -51,3 +51,10 @@ export function hexToHSL(hex: string): string {
 export function formatCurrency(value: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 }
+
+/** ISO (AAAA-MM-DD[...]) -> dd/mm/aaaa; nulo -> travessão. */
+export function formatarData(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const [a, m, d] = iso.slice(0, 10).split('-')
+  return d ? `${d}/${m}/${a}` : '—'
+}

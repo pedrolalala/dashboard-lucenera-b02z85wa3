@@ -9,6 +9,9 @@ import {
 } from '@/components/ui/select'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import FilterChip from '@/components/FilterChip'
+import PeriodFilter from '@/components/PeriodFilter'
+import PlanilhaTabela from '@/components/PlanilhaTabela'
+import { COLUNAS_FINANCEIRO } from '@/components/colunasFinanceiro'
 import { formatCurrency, cn } from '@/lib/utils'
 import {
   Loader2,
@@ -25,12 +28,12 @@ import {
   fetchFinanceiro,
   computeKpisContasReceber,
   groupReceitaPorApropriacao,
-  distinctAnos,
   filterFinanceiro,
   filterByDescricao,
   filterByPerfil,
-  MESES,
+  rangePreset,
   type FinanceiroRow,
+  type Periodo,
 } from '@/services/cash-flow'
 
 const CORES = [
@@ -49,12 +52,14 @@ function KpiCard({
   icon: Icon,
   tone = 'default',
   info,
+  caption,
 }: {
   title: string
   value: string
   icon: typeof ShoppingCart
   tone?: 'default' | 'warning'
   info?: string
+  caption?: string
 }) {
   return (
     <Card
@@ -83,6 +88,7 @@ function KpiCard({
         <div className={cn('text-2xl font-bold', tone === 'warning' && 'text-amber-500')}>
           {value}
         </div>
+        {caption && <p className="mt-1 text-[11px] text-muted-foreground">{caption}</p>}
       </CardContent>
     </Card>
   )
@@ -92,9 +98,11 @@ export default function ContasReceberFoco() {
   const [rows, setRows] = useState<FinanceiroRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // SPEC-041: default no mês/ano atuais, mas os Selects abaixo continuam editáveis.
-  const [ano, setAno] = useState<string | null>(String(new Date().getFullYear()))
-  const [mes, setMes] = useState<string | null>(String(new Date().getMonth() + 1).padStart(2, '0'))
+  // SPEC-126: intervalo livre De/Até; realizado confere por data de pagamento.
+  const [periodo, setPeriodo] = useState<Periodo>(() => ({
+    ...rangePreset('mes-atual'),
+    campo: 'dt_pagamento',
+  }))
   const [perfil, setPerfil] = useState<string | null>(null)
   const [apropriacaoSelecionada, setApropriacaoSelecionada] = useState<string | null>(null)
 
@@ -105,8 +113,7 @@ export default function ContasReceberFoco() {
       .finally(() => setIsLoading(false))
   }, [])
 
-  const anos = useMemo(() => distinctAnos(rows), [rows])
-  const filtradasPorPeriodo = useMemo(() => filterFinanceiro(rows, ano, mes), [rows, ano, mes])
+  const filtradasPorPeriodo = useMemo(() => filterFinanceiro(rows, periodo), [rows, periodo])
   const filtradas = useMemo(
     () => filterByPerfil(filtradasPorPeriodo, perfil),
     [filtradasPorPeriodo, perfil],
@@ -123,6 +130,10 @@ export default function ContasReceberFoco() {
   // reafirmada 22/07/2026 — evita a sensação de que os números "não batem").
   const kpisTotal = useMemo(() => computeKpisContasReceber(rows), [rows])
   const apropriacao = useMemo(() => groupReceitaPorApropriacao(filtradas), [filtradas])
+  const linhasPlanilha = useMemo(
+    () => filtradasPorCategoria.filter((r) => r.tipo === 'receita'),
+    [filtradasPorCategoria],
+  )
 
   const toggleApropriacao = (descricao: string) => {
     if (descricao === OUTROS) return
@@ -180,32 +191,7 @@ export default function ContasReceberFoco() {
               <SelectItem value="sao_paulo">São Paulo</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={ano ?? 'todos'} onValueChange={(v) => setAno(v === 'todos' ? null : v)}>
-            <SelectTrigger className="w-[120px] text-foreground">
-              <SelectValue placeholder="Ano" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os anos</SelectItem>
-              {anos.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={mes ?? 'todos'} onValueChange={(v) => setMes(v === 'todos' ? null : v)}>
-            <SelectTrigger className="w-[150px] text-foreground">
-              <SelectValue placeholder="Mês" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os meses</SelectItem>
-              {MESES.map((label, i) => (
-                <SelectItem key={label} value={String(i + 1).padStart(2, '0')}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <PeriodFilter value={periodo} onChange={setPeriodo} />
         </div>
       </div>
 
@@ -230,6 +216,7 @@ export default function ContasReceberFoco() {
           value={formatCurrency(kpisTotal.emAbertoReceber)}
           icon={Clock}
           tone="warning"
+          caption="Total acumulado — não muda com o filtro de período."
           info="Valor acumulado total em aberto, não filtrado pelo período selecionado acima."
         />
       </div>
@@ -291,6 +278,15 @@ export default function ContasReceberFoco() {
           </p>
         </CardContent>
       </Card>
+
+      <PlanilhaTabela
+        titulo="Planilha — recebimentos do período"
+        descricao="Linhas de receita de v_financeiro_realizado no intervalo, perfil e apropriação selecionados. Confira com o export do Connect; a coluna Duplicata é a chave de match. Baixe o CSV para comparar."
+        colunas={COLUNAS_FINANCEIRO}
+        rows={linhasPlanilha}
+        nomeArquivo="contas-receber"
+        chaveLinha={(r) => r.id}
+      />
     </div>
   )
 }

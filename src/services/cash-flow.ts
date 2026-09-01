@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase/client'
 
 export interface FinanceiroRow {
+  id: string
   tipo: 'despesa' | 'receita'
   descricao: string
   desc_sub_grupo: string | null
@@ -8,17 +9,20 @@ export interface FinanceiroRow {
   natureza: 'despesa_operacional' | 'distribuicao_lucro' | null
   tipo_custo: 'fixo' | 'variavel' | 'outro' | null
   status_pago: number
+  dt_emissao: string | null
   dt_pagamento: string | null
   dt_vencimento: string | null
   vl_pago: number
   vl_parcela: number
   vl_desconto: number
+  /** chave da duplicata no Connect — usada para bater linha a linha com a planilha. */
+  cod_duplicata: number | null
   /** SPEC-064: rótulo Ribeirão/São Paulo, classificado manualmente em /transacoes. */
   perfil: string | null
 }
 
 const COLUNAS =
-  'tipo,descricao,desc_sub_grupo,desc_grupo,natureza,tipo_custo,status_pago,dt_pagamento,dt_vencimento,vl_pago,vl_parcela,vl_desconto,perfil'
+  'id,tipo,descricao,desc_sub_grupo,desc_grupo,natureza,tipo_custo,status_pago,dt_emissao,dt_pagamento,dt_vencimento,vl_pago,vl_parcela,vl_desconto,cod_duplicata,perfil'
 
 const PAGE_SIZE = 1000
 
@@ -39,37 +43,70 @@ export async function fetchFinanceiro(): Promise<FinanceiroRow[]> {
   return rows
 }
 
-export function distinctAnos(rows: FinanceiroRow[]): string[] {
-  const anos = new Set(rows.filter((r) => r.dt_pagamento).map((r) => r.dt_pagamento!.slice(0, 4)))
-  return Array.from(anos).sort()
+// SPEC-126 (reunião 31/08): o filtro passou de Ano/Mês para intervalo livre
+// De/Até, com escolha explícita da coluna de data. "Realizado" confere por
+// `dt_pagamento`; "previsto / agenda em aberto" por `dt_vencimento`. É o que
+// permite reproduzir a planilha do Sérgio de um mês exato e bater KPI a KPI.
+export type CampoData = 'dt_pagamento' | 'dt_vencimento'
+
+export type PresetPeriodo = 'mes-atual' | 'mes-passado' | 'ano-atual' | 'tudo'
+
+export interface Periodo {
+  /** limite inferior inclusivo, AAAA-MM-DD, ou null para "sem início" */
+  de: string | null
+  /** limite superior inclusivo, AAAA-MM-DD, ou null para "sem fim" */
+  ate: string | null
+  campo: CampoData
 }
 
-export const MESES = [
-  'Janeiro',
-  'Fevereiro',
-  'Março',
-  'Abril',
-  'Maio',
-  'Junho',
-  'Julho',
-  'Agosto',
-  'Setembro',
-  'Outubro',
-  'Novembro',
-  'Dezembro',
-]
+function ymd(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
 
-export function filterFinanceiro(
-  rows: FinanceiroRow[],
-  ano: string | null,
-  mes: string | null,
-): FinanceiroRow[] {
-  if (!ano && !mes) return rows
+/** Intervalo (inclusivo, AAAA-MM-DD) de um preset. `tudo` => sem limites. */
+export function rangePreset(preset: PresetPeriodo): { de: string | null; ate: string | null } {
+  const hoje = new Date()
+  const ano = hoje.getFullYear()
+  const mes = hoje.getMonth()
+  switch (preset) {
+    case 'mes-atual':
+      return { de: ymd(new Date(ano, mes, 1)), ate: ymd(new Date(ano, mes + 1, 0)) }
+    case 'mes-passado':
+      return { de: ymd(new Date(ano, mes - 1, 1)), ate: ymd(new Date(ano, mes, 0)) }
+    case 'ano-atual':
+      return { de: ymd(new Date(ano, 0, 1)), ate: ymd(new Date(ano, 11, 31)) }
+    case 'tudo':
+      return { de: null, ate: null }
+  }
+}
+
+/** Janela de mesmo tamanho imediatamente anterior a `p` (para o Δ dos KPIs). */
+export function periodoAnterior(p: Periodo): Periodo | null {
+  if (!p.de || !p.ate) return null
+  const de = new Date(`${p.de}T00:00:00`)
+  const ate = new Date(`${p.ate}T00:00:00`)
+  const dias = Math.round((ate.getTime() - de.getTime()) / 86_400_000) + 1
+  const novoAte = new Date(de.getTime() - 86_400_000)
+  const novoDe = new Date(novoAte.getTime() - (dias - 1) * 86_400_000)
+  return { ...p, de: ymd(novoDe), ate: ymd(novoAte) }
+}
+
+/**
+ * Filtra por intervalo [de, ate] (inclusivo) na coluna escolhida. Sem `de` e
+ * sem `ate` devolve tudo. Linha sem valor na coluna escolhida não entra quando
+ * há intervalo (decisão SPEC-126: para conferência, "não pago" não conta como
+ * realizado do período).
+ */
+export function filterFinanceiro(rows: FinanceiroRow[], periodo: Periodo): FinanceiroRow[] {
+  const { de, ate, campo } = periodo
+  if (!de && !ate) return rows
   return rows.filter((r) => {
-    const ref = r.dt_pagamento ?? r.dt_vencimento
+    const ref = r[campo]?.slice(0, 10)
     if (!ref) return false
-    if (ano && ref.slice(0, 4) !== ano) return false
-    if (mes && ref.slice(5, 7) !== mes) return false
+    if (de && ref < de) return false
+    if (ate && ref > ate) return false
     return true
   })
 }
@@ -89,6 +126,21 @@ export function filterByDescSubGrupo(
 ): FinanceiroRow[] {
   if (!descSubGrupo) return rows
   return rows.filter((r) => r.desc_sub_grupo === descSubGrupo)
+}
+
+/** SPEC-126 Escopo 6: recorte por grupo (ex.: "INVESTIMENTO") em Contas a Pagar. */
+export function filterByDescGrupo(rows: FinanceiroRow[], descGrupo: string | null): FinanceiroRow[] {
+  if (!descGrupo) return rows
+  return rows.filter((r) => r.desc_grupo === descGrupo)
+}
+
+/** Grupos distintos presentes nas linhas de despesa, ordenados. */
+export function distinctGrupos(rows: FinanceiroRow[]): string[] {
+  const set = new Set<string>()
+  for (const r of rows) {
+    if (r.tipo === 'despesa' && r.desc_grupo) set.add(r.desc_grupo)
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'))
 }
 
 export function filterByDescricao(

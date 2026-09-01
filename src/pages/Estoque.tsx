@@ -17,6 +17,7 @@ import {
   TrendingDown,
   Boxes,
   ShoppingBag,
+  Users,
   X,
   ChevronUp,
   ChevronDown,
@@ -48,6 +49,84 @@ import {
   type MkpMarca,
   type SortDir,
 } from '@/services/estoque'
+import PlanilhaTabela, { type ColunaPlanilha } from '@/components/PlanilhaTabela'
+
+const num = (v: number) => (v ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+
+const COLUNAS_ESTOQUE: ColunaPlanilha<EstoqueProdutoRow>[] = [
+  {
+    chave: 'codigo_produto',
+    titulo: 'Código',
+    texto: (r) => (r.codigo_produto != null ? String(r.codigo_produto) : '—'),
+    ordenar: (r) => r.codigo_produto ?? 0,
+    alinhar: 'right',
+  },
+  { chave: 'produto', titulo: 'Produto', texto: (r) => r.produto ?? '' },
+  { chave: 'marca', titulo: 'Marca', texto: (r) => r.marca ?? '' },
+  {
+    chave: 'estoque_total',
+    titulo: 'Estoque total',
+    texto: (r) => num(r.estoque_total),
+    ordenar: (r) => r.estoque_total ?? 0,
+    alinhar: 'right',
+  },
+  {
+    chave: 'estoque_disponivel',
+    titulo: 'Disponível',
+    texto: (r) => num(r.estoque_disponivel),
+    ordenar: (r) => r.estoque_disponivel ?? 0,
+    alinhar: 'right',
+  },
+  {
+    chave: 'estoque_showroom',
+    titulo: 'Showroom',
+    texto: (r) => num(r.estoque_showroom),
+    ordenar: (r) => r.estoque_showroom ?? 0,
+    alinhar: 'right',
+  },
+  {
+    chave: 'custo_unitario',
+    titulo: 'Custo un.',
+    texto: (r) => formatCurrency(r.custo_unitario ?? 0),
+    ordenar: (r) => r.custo_unitario ?? 0,
+    alinhar: 'right',
+  },
+  {
+    chave: 'venda_unitaria',
+    titulo: 'Venda un.',
+    texto: (r) => formatCurrency(r.venda_unitaria ?? 0),
+    ordenar: (r) => r.venda_unitaria ?? 0,
+    alinhar: 'right',
+  },
+  {
+    chave: 'valor_custo_disponivel',
+    titulo: 'Custo disp.',
+    texto: (r) => formatCurrency(r.valor_custo_disponivel ?? 0),
+    ordenar: (r) => r.valor_custo_disponivel ?? 0,
+    alinhar: 'right',
+  },
+  {
+    chave: 'valor_venda_disponivel',
+    titulo: 'Venda disp.',
+    texto: (r) => formatCurrency(r.valor_venda_disponivel ?? 0),
+    ordenar: (r) => r.valor_venda_disponivel ?? 0,
+    alinhar: 'right',
+  },
+  {
+    chave: 'valor_custo_total',
+    titulo: 'Custo total',
+    texto: (r) => formatCurrency(r.valor_custo_total ?? 0),
+    ordenar: (r) => r.valor_custo_total ?? 0,
+    alinhar: 'right',
+  },
+  {
+    chave: 'mkp',
+    titulo: 'MKP',
+    texto: (r) => (r.mkp != null ? `${r.mkp.toFixed(2)}x` : '—'),
+    ordenar: (r) => r.mkp ?? 0,
+    alinhar: 'right',
+  },
+]
 
 const CORES = [
   'hsl(var(--chart-1))',
@@ -297,12 +376,34 @@ export default function Estoque() {
           tone="negative"
         />
         <KpiCard
+          title="De Cliente / Reservado (Custo)"
+          value={formatCurrency(kpis.valorCustoReservado)}
+          icon={Users}
+        />
+        <KpiCard
+          title="De Cliente / Reservado (Venda)"
+          value={formatCurrency(kpis.valorVendaReservado)}
+          icon={Users}
+        />
+        <KpiCard
           title="Showroom (Custo)"
           value={formatCurrency(kpis.valorCustoShowroom)}
           icon={ShoppingBag}
         />
+        <KpiCard
+          title="Showroom (Venda)"
+          value={formatCurrency(kpis.valorVendaShowroom)}
+          icon={ShoppingBag}
+        />
         <KpiCard title="Marcas no filtro" value={String(porMarca.length)} icon={Package} />
       </div>
+
+      <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+        "Disponível" já inclui o Showroom (não somar Disponível + Showroom). "De Cliente / Reservado"
+        é o valor comprometido com projetos — a base para o seguro do estoque; calculado como
+        estoque total + showroom − disponível. Quando <code>v_estoque_produtos</code> passar a expor
+        <code> estoque_reservado</code> (SPEC-126 Escopo 5), este número vem direto da view.
+      </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="border-border/60 shadow-sm">
@@ -612,6 +713,15 @@ export default function Estoque() {
           </CardContent>
         </Card>
       </div>
+
+      <PlanilhaTabela
+        titulo="Planilha — produtos"
+        descricao="Uma linha por produto ativo de v_estoque_produtos, na marca selecionada. Confira com a planilha de estoque do Connect; baixe o CSV para comparar."
+        colunas={COLUNAS_ESTOQUE}
+        rows={filtradas}
+        nomeArquivo="estoque"
+        chaveLinha={(r) => r.produto_id}
+      />
     </div>
   )
 }

@@ -1,14 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import FilterChip from '@/components/FilterChip'
+import PeriodFilter from '@/components/PeriodFilter'
+import PlanilhaTabela from '@/components/PlanilhaTabela'
+import { COLUNAS_FINANCEIRO } from '@/components/colunasFinanceiro'
 import { formatCurrency, cn } from '@/lib/utils'
 import {
   Loader2,
@@ -42,11 +38,12 @@ import {
   computeFluxoDiario,
   computeCustoFixoVariavel,
   computePontoEquilibrio,
-  distinctAnos,
   filterFinanceiro,
   filterByTipoCusto,
-  MESES,
+  periodoAnterior,
+  rangePreset,
   type FinanceiroRow,
+  type Periodo,
 } from '@/services/cash-flow'
 import { fetchNecessidadeCompra, computeGastoFuturoInevitavel } from '@/services/necessidade-compra'
 
@@ -67,19 +64,6 @@ const LABEL_CUSTO: Record<TipoCusto, string> = {
   fixo: 'Fixo',
   variavel: 'Variável',
   outro: 'Outro',
-}
-
-/** Mês anterior ao (ano, mes) selecionado — só definido quando os dois filtros estão ativos. */
-function periodoAnterior(
-  ano: string | null,
-  mes: string | null,
-): { ano: string; mes: string } | null {
-  if (!ano || !mes) return null
-  const anoNum = Number(ano)
-  const mesNum = Number(mes)
-  const mesAnterior = mesNum === 1 ? 12 : mesNum - 1
-  const anoAnterior = mesNum === 1 ? anoNum - 1 : anoNum
-  return { ano: String(anoAnterior), mes: String(mesAnterior).padStart(2, '0') }
 }
 
 function DeltaBadge({
@@ -104,7 +88,7 @@ function DeltaBadge({
       )}
     >
       <Icon className="h-3 w-3" />
-      {Math.abs(pct).toFixed(1)}% vs mês anterior
+      {Math.abs(pct).toFixed(1)}% vs período anterior
     </span>
   )
 }
@@ -147,10 +131,12 @@ export default function Index() {
   const [rows, setRows] = useState<FinanceiroRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // SPEC-041: default no mês/ano atuais ("Fluxo de Caixa Realizado (Mês Atual)"),
-  // mas os Selects abaixo continuam editáveis — usuário pode navegar para outros períodos.
-  const [ano, setAno] = useState<string | null>(String(new Date().getFullYear()))
-  const [mes, setMes] = useState<string | null>(String(new Date().getMonth() + 1).padStart(2, '0'))
+  // SPEC-041: abre no mês atual. SPEC-126: filtro agora é intervalo livre De/Até
+  // + escolha da coluna de data (pagamento por padrão, para "realizado").
+  const [periodo, setPeriodo] = useState<Periodo>(() => ({
+    ...rangePreset('mes-atual'),
+    campo: 'dt_pagamento',
+  }))
   const [tipoCustoSelecionado, setTipoCustoSelecionado] = useState<TipoCusto | null>(null)
   const [gastoFuturoInevitavel, setGastoFuturoInevitavel] = useState<number | null>(null)
 
@@ -167,8 +153,7 @@ export default function Index() {
       .catch(() => setGastoFuturoInevitavel(null))
   }, [])
 
-  const anos = useMemo(() => distinctAnos(rows), [rows])
-  const filtradas = useMemo(() => filterFinanceiro(rows, ano, mes), [rows, ano, mes])
+  const filtradas = useMemo(() => filterFinanceiro(rows, periodo), [rows, periodo])
   const filtradasPorCategoria = useMemo(
     () => filterByTipoCusto(filtradas, tipoCustoSelecionado),
     [filtradas, tipoCustoSelecionado],
@@ -200,12 +185,12 @@ export default function Index() {
     [custoFixoVariavel],
   )
 
-  // Comparativo vs mês anterior — só calculado quando Ano + Mês estão selecionados
-  // (evita comparar um agregado "todos os meses" com um único mês, o que não faria sentido).
-  const anterior = useMemo(() => periodoAnterior(ano, mes), [ano, mes])
+  // Comparativo vs período anterior — janela de mesmo tamanho imediatamente
+  // antes do intervalo. Só quando há intervalo fechado (De e Até definidos).
+  const anterior = useMemo(() => periodoAnterior(periodo), [periodo])
   const kpisAnterior = useMemo(() => {
     if (!anterior) return null
-    return computeKpisVisaoGeral(filterFinanceiro(rows, anterior.ano, anterior.mes))
+    return computeKpisVisaoGeral(filterFinanceiro(rows, anterior))
   }, [rows, anterior])
 
   const margemOperacional =
@@ -239,7 +224,7 @@ export default function Index() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-light uppercase tracking-widest text-foreground">
-            Fluxo de Caixa Realizado (Mês Atual)
+            Fluxo de Caixa Realizado
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Fluxo de caixa realizado — dados ao vivo do Supabase (v_financeiro_realizado).
@@ -252,32 +237,7 @@ export default function Index() {
               onClear={() => setTipoCustoSelecionado(null)}
             />
           )}
-          <Select value={ano ?? 'todos'} onValueChange={(v) => setAno(v === 'todos' ? null : v)}>
-            <SelectTrigger className="w-[120px] text-foreground">
-              <SelectValue placeholder="Ano" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os anos</SelectItem>
-              {anos.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={mes ?? 'todos'} onValueChange={(v) => setMes(v === 'todos' ? null : v)}>
-            <SelectTrigger className="w-[150px] text-foreground">
-              <SelectValue placeholder="Mês" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os meses</SelectItem>
-              {MESES.map((label, i) => (
-                <SelectItem key={label} value={String(i + 1).padStart(2, '0')}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <PeriodFilter value={periodo} onChange={setPeriodo} />
         </div>
       </div>
 
@@ -572,6 +532,15 @@ export default function Index() {
           </ChartContainer>
         </CardContent>
       </Card>
+
+      <PlanilhaTabela
+        titulo="Planilha — lançamentos do período"
+        descricao="Todas as linhas de v_financeiro_realizado no intervalo e perfil selecionados. Confira com o export do Connect / a planilha do Sérgio; a coluna Duplicata é a chave de match. Baixe o CSV para comparar."
+        colunas={COLUNAS_FINANCEIRO}
+        rows={filtradas}
+        nomeArquivo="fluxo-caixa"
+        chaveLinha={(r) => r.id}
+      />
     </div>
   )
 }

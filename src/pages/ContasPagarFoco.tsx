@@ -9,6 +9,9 @@ import {
 } from '@/components/ui/select'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import FilterChip from '@/components/FilterChip'
+import PeriodFilter from '@/components/PeriodFilter'
+import PlanilhaTabela from '@/components/PlanilhaTabela'
+import { COLUNAS_FINANCEIRO } from '@/components/colunasFinanceiro'
 import { formatCurrency, cn } from '@/lib/utils'
 import { Loader2, Package, Wallet, Clock, AlertTriangle, Info } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -28,12 +31,14 @@ import {
   computeKpisContasPagar,
   groupDespesaPorSubGrupo,
   computePrevistoPagarPorDia,
-  distinctAnos,
   filterFinanceiro,
+  filterByDescGrupo,
   filterByDescSubGrupo,
   filterByPerfil,
-  MESES,
+  distinctGrupos,
+  rangePreset,
   type FinanceiroRow,
+  type Periodo,
 } from '@/services/cash-flow'
 
 const chartConfig = {
@@ -47,12 +52,14 @@ function KpiCard({
   icon: Icon,
   tone = 'default',
   info,
+  caption,
 }: {
   title: string
   value: string
   icon: typeof Package
   tone?: 'default' | 'warning'
   info?: string
+  caption?: string
 }) {
   return (
     <Card
@@ -81,6 +88,7 @@ function KpiCard({
         <div className={cn('text-2xl font-bold', tone === 'warning' && 'text-amber-500')}>
           {value}
         </div>
+        {caption && <p className="mt-1 text-[11px] text-muted-foreground">{caption}</p>}
       </CardContent>
     </Card>
   )
@@ -90,10 +98,14 @@ export default function ContasPagarFoco() {
   const [rows, setRows] = useState<FinanceiroRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // SPEC-041: default no mês/ano atuais, mas os Selects abaixo continuam editáveis.
-  const [ano, setAno] = useState<string | null>(String(new Date().getFullYear()))
-  const [mes, setMes] = useState<string | null>(String(new Date().getMonth() + 1).padStart(2, '0'))
+  // SPEC-126: intervalo livre De/Até. Realizado confere por data de pagamento;
+  // "Previsto em aberto" (abaixo) sempre por data de vencimento.
+  const [periodo, setPeriodo] = useState<Periodo>(() => ({
+    ...rangePreset('mes-atual'),
+    campo: 'dt_pagamento',
+  }))
   const [perfil, setPerfil] = useState<string | null>(null)
+  const [grupoSelecionado, setGrupoSelecionado] = useState<string | null>(null)
   const [subGrupoSelecionado, setSubGrupoSelecionado] = useState<string | null>(null)
 
   useEffect(() => {
@@ -103,23 +115,37 @@ export default function ContasPagarFoco() {
       .finally(() => setIsLoading(false))
   }, [])
 
-  const anos = useMemo(() => distinctAnos(rows), [rows])
-  const filtradasPorPeriodo = useMemo(() => filterFinanceiro(rows, ano, mes), [rows, ano, mes])
+  const grupos = useMemo(() => distinctGrupos(rows), [rows])
+  const filtradasPorPeriodo = useMemo(() => filterFinanceiro(rows, periodo), [rows, periodo])
   const filtradas = useMemo(
-    () => filterByPerfil(filtradasPorPeriodo, perfil),
-    [filtradasPorPeriodo, perfil],
+    () => filterByDescGrupo(filterByPerfil(filtradasPorPeriodo, perfil), grupoSelecionado),
+    [filtradasPorPeriodo, perfil, grupoSelecionado],
   )
   const filtradasPorCategoria = useMemo(
     () => filterByDescSubGrupo(filtradas, subGrupoSelecionado),
     [filtradas, subGrupoSelecionado],
   )
   const kpis = useMemo(() => computeKpisContasPagar(filtradasPorCategoria), [filtradasPorCategoria])
-  // "Em Aberto" é sempre o total acumulado, nunca filtrado por Ano/Mês (decisão
+  // "Em Aberto" é sempre o total acumulado, nunca filtrado por período (decisão
   // reafirmada 22/07/2026 — evita a sensação de que os números "não batem").
   const kpisTotal = useMemo(() => computeKpisContasPagar(rows), [rows])
   const subGrupos = useMemo(() => groupDespesaPorSubGrupo(filtradas), [filtradas])
+  // SPEC-126: "Previsto em Aberto por vencimento" respeita o intervalo, mas
+  // sempre pela coluna de VENCIMENTO — parcela em aberto não tem pagamento.
+  const abertasPorVencimento = useMemo(
+    () =>
+      filterByDescSubGrupo(
+        filterByPerfil(filterFinanceiro(rows, { ...periodo, campo: 'dt_vencimento' }), perfil),
+        subGrupoSelecionado,
+      ),
+    [rows, periodo, perfil, subGrupoSelecionado],
+  )
   const previsto = useMemo(
-    () => computePrevistoPagarPorDia(filtradasPorCategoria).slice(0, 60),
+    () => computePrevistoPagarPorDia(abertasPorVencimento).slice(0, 60),
+    [abertasPorVencimento],
+  )
+  const linhasPlanilha = useMemo(
+    () => filtradasPorCategoria.filter((r) => r.tipo === 'despesa'),
     [filtradasPorCategoria],
   )
 
@@ -154,13 +180,30 @@ export default function ContasPagarFoco() {
             Agenda de Pagamentos
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Segmentado por centro de custo (DescSubGrupo).
+            Segmentado por centro de custo (DescSubGrupo). Use o filtro de grupo para ver, por
+            exemplo, só Investimento.
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {subGrupoSelecionado && (
             <FilterChip label={subGrupoSelecionado} onClear={() => setSubGrupoSelecionado(null)} />
           )}
+          <Select
+            value={grupoSelecionado ?? 'todos'}
+            onValueChange={(v) => setGrupoSelecionado(v === 'todos' ? null : v)}
+          >
+            <SelectTrigger className="w-[170px] text-foreground">
+              <SelectValue placeholder="Grupo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os grupos</SelectItem>
+              {grupos.map((g) => (
+                <SelectItem key={g} value={g}>
+                  {g}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select
             value={perfil ?? 'todos'}
             onValueChange={(v) => setPerfil(v === 'todos' ? null : v)}
@@ -174,32 +217,7 @@ export default function ContasPagarFoco() {
               <SelectItem value="sao_paulo">São Paulo</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={ano ?? 'todos'} onValueChange={(v) => setAno(v === 'todos' ? null : v)}>
-            <SelectTrigger className="w-[120px] text-foreground">
-              <SelectValue placeholder="Ano" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os anos</SelectItem>
-              {anos.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={mes ?? 'todos'} onValueChange={(v) => setMes(v === 'todos' ? null : v)}>
-            <SelectTrigger className="w-[150px] text-foreground">
-              <SelectValue placeholder="Mês" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os meses</SelectItem>
-              {MESES.map((label, i) => (
-                <SelectItem key={label} value={String(i + 1).padStart(2, '0')}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <PeriodFilter value={periodo} onChange={setPeriodo} />
         </div>
       </div>
 
@@ -219,6 +237,7 @@ export default function ContasPagarFoco() {
           value={formatCurrency(kpisTotal.emAbertoPagar)}
           icon={Clock}
           tone="warning"
+          caption="Total acumulado — não muda com o filtro de período."
           info="Valor acumulado total em aberto, não filtrado pelo período selecionado acima."
         />
       </div>
@@ -346,6 +365,15 @@ export default function ContasPagarFoco() {
           </table>
         </CardContent>
       </Card>
+
+      <PlanilhaTabela
+        titulo="Planilha — pagamentos do período"
+        descricao="Linhas de despesa de v_financeiro_realizado no intervalo, perfil e centro de custo selecionados. Confira com o export do Connect; a coluna Duplicata é a chave de match. Baixe o CSV para comparar."
+        colunas={COLUNAS_FINANCEIRO}
+        rows={linhasPlanilha}
+        nomeArquivo="contas-pagar"
+        chaveLinha={(r) => r.id}
+      />
     </div>
   )
 }

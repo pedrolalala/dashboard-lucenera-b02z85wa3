@@ -63,6 +63,23 @@ export interface KpisEstoque {
   cmvNegativos: number
   vendaNegativos: number
   valorCustoShowroom: number
+  valorVendaShowroom: number
+  /** SPEC-126 Escopo 5: "De Cliente / Reservado" — base do seguro do estoque. */
+  valorCustoReservado: number
+  valorVendaReservado: number
+}
+
+/**
+ * Qtd reservada (comprometida com projeto de cliente) derivada dos campos da
+ * view: `disponivel = total + showroom - reservado` (definição do Connect,
+ * reunião 31/08). Enquanto `v_estoque_produtos` não expõe `estoque_reservado`
+ * direto (SPEC-126 Escopo 5), calcula aqui.
+ */
+export function reservadoQtd(r: EstoqueProdutoRow): number {
+  return Math.max(
+    0,
+    (r.estoque_total ?? 0) + (r.estoque_showroom ?? 0) - (r.estoque_disponivel ?? 0),
+  )
 }
 
 export function computeKpisEstoque(rows: EstoqueProdutoRow[]): KpisEstoque {
@@ -74,6 +91,9 @@ export function computeKpisEstoque(rows: EstoqueProdutoRow[]): KpisEstoque {
     cmvNegativos: 0,
     vendaNegativos: 0,
     valorCustoShowroom: 0,
+    valorVendaShowroom: 0,
+    valorCustoReservado: 0,
+    valorVendaReservado: 0,
   }
   for (const r of rows) {
     kpis.valorCustoTotal += r.valor_custo_total
@@ -83,6 +103,10 @@ export function computeKpisEstoque(rows: EstoqueProdutoRow[]): KpisEstoque {
     kpis.cmvNegativos += r.valor_custo_negativo
     kpis.vendaNegativos += r.valor_venda_negativo
     kpis.valorCustoShowroom += r.valor_custo_showroom
+    kpis.valorVendaShowroom += Math.max(0, r.estoque_showroom ?? 0) * (r.venda_unitaria ?? 0)
+    const resv = reservadoQtd(r)
+    kpis.valorCustoReservado += resv * (r.custo_unitario ?? 0)
+    kpis.valorVendaReservado += resv * (r.venda_unitaria ?? 0)
   }
   return kpis
 }
