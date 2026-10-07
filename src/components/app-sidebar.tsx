@@ -4,10 +4,14 @@ import {
   Landmark,
   ArrowDownCircle,
   ArrowUpCircle,
+  TrendingUp,
+  CalendarX,
   Boxes,
+  ShoppingBag,
   RefreshCw,
   History,
   Settings,
+  Tags,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -26,9 +30,15 @@ const itemsFinanceiro = [
   { title: 'Fluxo de Caixa Realizado (Mês Atual)', url: '/', icon: LayoutDashboard },
   { title: 'Agenda de Recebimentos', url: '/contas-receber-foco', icon: ArrowDownCircle },
   { title: 'Agenda de Pagamentos', url: '/contas-pagar-foco', icon: ArrowUpCircle },
+  { title: 'Fluxo Futuro (Projeção)', url: '/fluxo-futuro', icon: TrendingUp },
+  { title: '31/12 · Pendências', url: '/pendencias-31-12', icon: CalendarX },
+  { title: 'Classificar Perfil (RP/SP)', url: '/transacoes', icon: Tags },
 ]
 
-const itemsEstoque = [{ title: 'Estoque', url: '/estoque', icon: Boxes }]
+const itemsEstoque = [
+  { title: 'Estoque', url: '/estoque', icon: Boxes },
+  { title: 'Showroom', url: '/showroom', icon: ShoppingBag },
+]
 
 const itemsSistema = [
   { title: 'Sincronização', url: '/sync', icon: RefreshCw },

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import FilterChip from '@/components/FilterChip'
 import PeriodFilter from '@/components/PeriodFilter'
+import MesSelect from '@/components/MesSelect'
 import PlanilhaTabela from '@/components/PlanilhaTabela'
 import { COLUNAS_FINANCEIRO } from '@/components/colunasFinanceiro'
 import { formatCurrency, cn } from '@/lib/utils'
@@ -38,10 +39,14 @@ import {
   computeFluxoDiario,
   computeCustoFixoVariavel,
   computePontoEquilibrio,
+  computeInvestimentoRealizado,
   filterFinanceiro,
   filterByTipoCusto,
   periodoAnterior,
   rangePreset,
+  mesesPresentes,
+  intervaloDoMes,
+  mesDoPeriodo,
   type FinanceiroRow,
   type Periodo,
 } from '@/services/cash-flow'
@@ -149,11 +154,15 @@ export default function Index() {
 
   useEffect(() => {
     fetchNecessidadeCompra()
-      .then((necessidadeRows) => setGastoFuturoInevitavel(computeGastoFuturoInevitavel(necessidadeRows)))
+      .then((necessidadeRows) =>
+        setGastoFuturoInevitavel(computeGastoFuturoInevitavel(necessidadeRows)),
+      )
       .catch(() => setGastoFuturoInevitavel(null))
   }, [])
 
   const filtradas = useMemo(() => filterFinanceiro(rows, periodo), [rows, periodo])
+  const meses = useMemo(() => mesesPresentes(rows, periodo.campo), [rows, periodo.campo])
+  const investimento = useMemo(() => computeInvestimentoRealizado(filtradas), [filtradas])
   const filtradasPorCategoria = useMemo(
     () => filterByTipoCusto(filtradas, tipoCustoSelecionado),
     [filtradas, tipoCustoSelecionado],
@@ -237,6 +246,11 @@ export default function Index() {
               onClear={() => setTipoCustoSelecionado(null)}
             />
           )}
+          <MesSelect
+            meses={meses}
+            value={mesDoPeriodo(periodo)}
+            onChange={(mes) => mes && setPeriodo({ ...periodo, ...intervaloDoMes(mes) })}
+          />
           <PeriodFilter value={periodo} onChange={setPeriodo} />
         </div>
       </div>
@@ -342,8 +356,8 @@ export default function Index() {
                 Necessidade de Compra (Gasto Futuro Inevitável)
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Déficit líquido de estoque a repor, valorizado ao custo — separado do fluxo de
-                caixa realizado acima.
+                Déficit líquido de estoque a repor, valorizado ao custo — separado do fluxo de caixa
+                realizado acima.
               </p>
             </div>
           </div>
@@ -450,6 +464,22 @@ export default function Index() {
             tipo de custo. Classificação Fixo/Variável por centro de custo é um default proposto
             (reunião 13/07/2026), pendente de validação.
           </p>
+
+          {/* SPEC-127 Escopo 3: Investimento destacado abaixo do fixo × variável — sem card no
+              topo, sem gráfico (Vinícius, 03/09). Fica à parte do Resultado Operacional e do
+              Ponto de Equilíbrio. */}
+          <div className="mt-4 flex items-center justify-between rounded-md border border-border/60 bg-muted/30 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Investimento (no período)</p>
+              <p className="text-[11px] text-muted-foreground">
+                Gasto do grupo Investimento — não entra no Resultado Operacional nem no Ponto de
+                Equilíbrio.
+              </p>
+            </div>
+            <p className="text-xl font-bold text-foreground tabular-nums">
+              {formatCurrency(investimento)}
+            </p>
+          </div>
         </CardContent>
       </Card>
 

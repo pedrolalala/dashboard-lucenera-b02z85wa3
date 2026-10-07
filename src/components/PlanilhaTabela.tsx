@@ -108,7 +108,11 @@ export default function PlanilhaTabela<T>({
               <tr>
                 {colunas.map((c) => {
                   const ativo = sort?.chave === c.chave
-                  const Icon = !ativo ? ChevronsUpDown : sort?.dir === 'asc' ? ChevronUp : ChevronDown
+                  const Icon = !ativo
+                    ? ChevronsUpDown
+                    : sort?.dir === 'asc'
+                      ? ChevronUp
+                      : ChevronDown
                   return (
                     <th
                       key={c.chave}

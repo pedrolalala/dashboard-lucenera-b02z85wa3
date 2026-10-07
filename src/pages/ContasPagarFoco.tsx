@@ -10,6 +10,7 @@ import {
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import FilterChip from '@/components/FilterChip'
 import PeriodFilter from '@/components/PeriodFilter'
+import MesSelect from '@/components/MesSelect'
 import PlanilhaTabela from '@/components/PlanilhaTabela'
 import { COLUNAS_FINANCEIRO } from '@/components/colunasFinanceiro'
 import { formatCurrency, cn } from '@/lib/utils'
@@ -37,6 +38,9 @@ import {
   filterByPerfil,
   distinctGrupos,
   rangePreset,
+  mesesPresentes,
+  intervaloDoMes,
+  mesDoPeriodo,
   type FinanceiroRow,
   type Periodo,
 } from '@/services/cash-flow'
@@ -117,6 +121,7 @@ export default function ContasPagarFoco() {
 
   const grupos = useMemo(() => distinctGrupos(rows), [rows])
   const filtradasPorPeriodo = useMemo(() => filterFinanceiro(rows, periodo), [rows, periodo])
+  const meses = useMemo(() => mesesPresentes(rows, periodo.campo), [rows, periodo.campo])
   const filtradas = useMemo(
     () => filterByDescGrupo(filterByPerfil(filtradasPorPeriodo, perfil), grupoSelecionado),
     [filtradasPorPeriodo, perfil, grupoSelecionado],
@@ -217,6 +222,11 @@ export default function ContasPagarFoco() {
               <SelectItem value="sao_paulo">São Paulo</SelectItem>
             </SelectContent>
           </Select>
+          <MesSelect
+            meses={meses}
+            value={mesDoPeriodo(periodo)}
+            onChange={(mes) => mes && setPeriodo({ ...periodo, ...intervaloDoMes(mes) })}
+          />
           <PeriodFilter value={periodo} onChange={setPeriodo} />
         </div>
       </div>

@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase/client'
 import { hexToHSL } from '@/lib/utils'
 import { Loader2, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { SystemSwitcher } from '@/components/SystemSwitcher'
 
 function AcessoNegado() {
   const { signOut } = useAuth()
@@ -17,8 +18,8 @@ function AcessoNegado() {
         <ShieldAlert className="h-10 w-10 mx-auto text-destructive" />
         <h1 className="text-lg font-semibold">Acesso negado</h1>
         <p className="text-sm text-muted-foreground">
-          Sua conta não tem permissão para acessar o Dashboard Financeiro. Fale com um
-          administrador se acredita que isso é um engano.
+          Sua conta não tem permissão para acessar o Dashboard Financeiro. Fale com um administrador
+          se acredita que isso é um engano.
         </p>
         <Button variant="outline" className="w-full" onClick={() => signOut()}>
           Sair
@@ -69,6 +70,7 @@ export default function Layout() {
           </div>
         </main>
       </SidebarInset>
+      <SystemSwitcher currentSlug="dashboard-financeiro" />
     </SidebarProvider>
   )
 }

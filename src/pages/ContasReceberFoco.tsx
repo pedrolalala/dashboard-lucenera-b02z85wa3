@@ -10,6 +10,7 @@ import {
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import FilterChip from '@/components/FilterChip'
 import PeriodFilter from '@/components/PeriodFilter'
+import MesSelect from '@/components/MesSelect'
 import PlanilhaTabela from '@/components/PlanilhaTabela'
 import { COLUNAS_FINANCEIRO } from '@/components/colunasFinanceiro'
 import { formatCurrency, cn } from '@/lib/utils'
@@ -32,6 +33,9 @@ import {
   filterByDescricao,
   filterByPerfil,
   rangePreset,
+  mesesPresentes,
+  intervaloDoMes,
+  mesDoPeriodo,
   type FinanceiroRow,
   type Periodo,
 } from '@/services/cash-flow'
@@ -114,6 +118,7 @@ export default function ContasReceberFoco() {
   }, [])
 
   const filtradasPorPeriodo = useMemo(() => filterFinanceiro(rows, periodo), [rows, periodo])
+  const meses = useMemo(() => mesesPresentes(rows, periodo.campo), [rows, periodo.campo])
   const filtradas = useMemo(
     () => filterByPerfil(filtradasPorPeriodo, perfil),
     [filtradasPorPeriodo, perfil],
@@ -191,6 +196,11 @@ export default function ContasReceberFoco() {
               <SelectItem value="sao_paulo">São Paulo</SelectItem>
             </SelectContent>
           </Select>
+          <MesSelect
+            meses={meses}
+            value={mesDoPeriodo(periodo)}
+            onChange={(mes) => mes && setPeriodo({ ...periodo, ...intervaloDoMes(mes) })}
+          />
           <PeriodFilter value={periodo} onChange={setPeriodo} />
         </div>
       </div>

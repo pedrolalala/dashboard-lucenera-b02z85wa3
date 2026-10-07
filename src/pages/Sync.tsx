@@ -12,16 +12,15 @@ import { useAuth } from '@/hooks/use-auth'
 import { useToast } from '@/hooks/use-toast'
 import { supabase } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
-import { Cloud, FileText, Landmark, RefreshCw } from 'lucide-react'
+import { Cloud, Landmark, RefreshCw } from 'lucide-react'
 
+// SPEC-130 (2026-09-14): módulo "SharePoint Sync" removido daqui de propósito — a function
+// sync-sharepoint foi desativada e apagada do Supabase. A sincronização de projetos com o
+// SharePoint agora é automática (trigger + cron das Edge Functions
+// sharepoint-projetos-push/sharepoint-projetos-pull), sem botão manual, e só toca a lista
+// "Organização Projetos" — nunca "Tabelas de Preços", que era o que essa function antiga
+// também sincronizava.
 const modules = [
-  {
-    id: 'sharepoint',
-    title: 'SharePoint Sync',
-    desc: 'Sincroniza arquivos de projetos e documentos da empresa.',
-    icon: FileText,
-    fn: 'sync-sharepoint',
-  },
   {
     id: 'teams',
     title: 'Teams Sync',
@@ -82,7 +81,7 @@ export default function Sync() {
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2">
         {modules.map((mod) => (
           <Card key={mod.id} className="border-border/50 shadow-sm flex flex-col">
             <CardHeader>

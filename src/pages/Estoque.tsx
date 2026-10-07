@@ -1,24 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { formatCurrency } from '@/lib/utils'
 import {
   Loader2,
   AlertTriangle,
-  Package,
   TrendingUp,
   TrendingDown,
-  Boxes,
-  ShoppingBag,
   Users,
-  X,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
@@ -38,7 +27,7 @@ import {
 import {
   fetchEstoque,
   distinctMarcas,
-  filterByMarca,
+  filterByMarcas,
   computeKpisEstoque,
   groupByMarca,
   topDeficit,
@@ -49,6 +38,7 @@ import {
   type MkpMarca,
   type SortDir,
 } from '@/services/estoque'
+import MarcaMultiSelect from '@/components/MarcaMultiSelect'
 import PlanilhaTabela, { type ColunaPlanilha } from '@/components/PlanilhaTabela'
 
 const num = (v: number) => (v ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })
@@ -140,7 +130,6 @@ const chartConfig = {
   valorCustoDisponivel: { label: 'Custo Disponível', color: 'hsl(var(--chart-1))' },
   valorVendaDisponivel: { label: 'Venda Disponível', color: 'hsl(var(--chart-2))' },
   skus: { label: 'SKUs', color: 'hsl(var(--chart-3))' },
-  valorCustoShowroom: { label: 'Showroom (Custo)', color: 'hsl(var(--chart-5))' },
   valor_custo_negativo: { label: 'A Comprar (Custo)', color: 'hsl(var(--chart-5))' },
 }
 
@@ -152,7 +141,7 @@ function KpiCard({
 }: {
   title: string
   value: string
-  icon: typeof Package
+  icon: typeof Users
   tone?: 'default' | 'positive' | 'negative'
 }) {
   const toneClass =
@@ -209,7 +198,7 @@ export default function Estoque() {
   const [rows, setRows] = useState<EstoqueProdutoRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [marcaSelecionada, setMarcaSelecionada] = useState<string | null>(null)
+  const [marcasSelecionadas, setMarcasSelecionadas] = useState<string[]>([])
   const [sortMarca, setSortMarca] = useState<{ key: keyof MarcaAgregada; dir: SortDir }>({
     key: 'valorCustoDisponivel',
     dir: 'desc',
@@ -226,8 +215,16 @@ export default function Estoque() {
       .finally(() => setIsLoading(false))
   }, [])
 
+  const toggleMarca = (m: string | undefined | null) => {
+    if (!m) return
+    setMarcasSelecionadas((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]))
+  }
+
   const marcas = useMemo(() => distinctMarcas(rows), [rows])
-  const filtradas = useMemo(() => filterByMarca(rows, marcaSelecionada), [rows, marcaSelecionada])
+  const filtradas = useMemo(
+    () => filterByMarcas(rows, marcasSelecionadas),
+    [rows, marcasSelecionadas],
+  )
   const kpis = useMemo(() => computeKpisEstoque(filtradas), [filtradas])
   const porMarca = useMemo(() => groupByMarca(filtradas), [filtradas])
   const porMarcaOrdenada = useMemo(
@@ -240,10 +237,6 @@ export default function Estoque() {
   const mkpOrdenado = useMemo(
     () => sortRows(mkpPorMarca, sortMkp.key, sortMkp.dir),
     [mkpPorMarca, sortMkp],
-  )
-  const showroomTop = useMemo(
-    () => [...porMarca].sort((a, b) => b.valorCustoShowroom - a.valorCustoShowroom).slice(0, 10),
-    [porMarca],
   )
   const donutData = useMemo(
     () =>
@@ -309,57 +302,22 @@ export default function Estoque() {
         <div>
           <h1 className="text-2xl font-light uppercase tracking-widest text-foreground">Estoque</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Valor de estoque por marca — disponível, em déficit e showroom.
+            Disponível e déficit por marca. {filtradas.length.toLocaleString('pt-BR')} produtos ·{' '}
+            {porMarca.length} marcas no recorte. Showroom agora fica na aba própria.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {marcaSelecionada && (
-            <button
-              onClick={() => setMarcaSelecionada(null)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X className="h-3.5 w-3.5" /> limpar filtro
-            </button>
-          )}
-          <Select
-            value={marcaSelecionada ?? 'todas'}
-            onValueChange={(v) => setMarcaSelecionada(v === 'todas' ? null : v)}
-          >
-            <SelectTrigger className="w-[200px] text-foreground">
-              <SelectValue placeholder="Marca" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todas">Todas as marcas</SelectItem>
-              {marcas.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <MarcaMultiSelect
+          marcas={marcas}
+          selecionadas={marcasSelecionadas}
+          onChange={setMarcasSelecionadas}
+        />
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="Valor de Estoque (Custo)"
-          value={formatCurrency(kpis.valorCustoTotal)}
-          icon={Boxes}
-        />
-        <KpiCard
-          title="Valor de Estoque (Venda)"
-          value={formatCurrency(kpis.valorVendaTotal)}
-          icon={Boxes}
-        />
+      {/* SPEC-127 E1: os 3 principais (Vinícius, reunião 03/09) — disponível e o que falta comprar. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard
           title="Custo Disponível"
           value={formatCurrency(kpis.cmvDisponivel)}
-          icon={TrendingUp}
-          tone="positive"
-        />
-        <KpiCard
-          title="Venda Disponível"
-          value={formatCurrency(kpis.vendaDisponivel)}
           icon={TrendingUp}
           tone="positive"
         />
@@ -370,39 +328,37 @@ export default function Estoque() {
           tone="negative"
         />
         <KpiCard
-          title="Venda em Déficit"
-          value={formatCurrency(kpis.vendaNegativos)}
-          icon={TrendingDown}
-          tone="negative"
+          title="Venda Disponível"
+          value={formatCurrency(kpis.vendaDisponivel)}
+          icon={TrendingUp}
+          tone="positive"
         />
-        <KpiCard
-          title="De Cliente / Reservado (Custo)"
-          value={formatCurrency(kpis.valorCustoReservado)}
-          icon={Users}
-        />
-        <KpiCard
-          title="De Cliente / Reservado (Venda)"
-          value={formatCurrency(kpis.valorVendaReservado)}
-          icon={Users}
-        />
-        <KpiCard
-          title="Showroom (Custo)"
-          value={formatCurrency(kpis.valorCustoShowroom)}
-          icon={ShoppingBag}
-        />
-        <KpiCard
-          title="Showroom (Venda)"
-          value={formatCurrency(kpis.valorVendaShowroom)}
-          icon={ShoppingBag}
-        />
-        <KpiCard title="Marcas no filtro" value={String(porMarca.length)} icon={Package} />
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Comprometido com projeto de cliente (base do seguro)
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <KpiCard
+            title="De Cliente / Reservado (Custo)"
+            value={formatCurrency(kpis.valorCustoReservado)}
+            icon={Users}
+          />
+          <KpiCard
+            title="De Cliente / Reservado (Venda)"
+            value={formatCurrency(kpis.valorVendaReservado)}
+            icon={Users}
+          />
+        </div>
       </div>
 
       <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-        "Disponível" já inclui o Showroom (não somar Disponível + Showroom). "De Cliente / Reservado"
-        é o valor comprometido com projetos — a base para o seguro do estoque; calculado como
-        estoque total + showroom − disponível. Quando <code>v_estoque_produtos</code> passar a expor
-        <code> estoque_reservado</code> (SPEC-126 Escopo 5), este número vem direto da view.
+        "Disponível" já inclui o Showroom (não somar). "De Cliente / Reservado" é o valor
+        comprometido com projetos — calculado como estoque total + showroom − disponível, ainda
+        aproximado (infla com peça em déficit e com o showroom contado duas vezes). Fica exato
+        quando <code>v_estoque_produtos</code> expuser <code>estoque_reservado</code> (SPEC-126
+        Escopo 5). Estoque é foto do último import — não tem histórico.
       </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -417,10 +373,7 @@ export default function Estoque() {
                   data={porMarcaTop15}
                   layout="vertical"
                   margin={{ top: 10, right: 20, left: 10, bottom: 0 }}
-                  onClick={(e: any) => {
-                    const marca = e?.activePayload?.[0]?.payload?.marca
-                    if (marca) setMarcaSelecionada((prev) => (prev === marca ? null : marca))
-                  }}
+                  onClick={(e: any) => toggleMarca(e?.activePayload?.[0]?.payload?.marca)}
                 >
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.2} />
                   <XAxis type="number" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} />
@@ -443,7 +396,7 @@ export default function Estoque() {
               </ResponsiveContainer>
             </ChartContainer>
             <p className="text-[11px] text-muted-foreground text-center mt-1">
-              Clique numa barra para filtrar a página por essa marca.
+              Clique numa barra para adicionar/remover essa marca do filtro.
             </p>
           </CardContent>
         </Card>
@@ -463,10 +416,7 @@ export default function Estoque() {
                     innerRadius={55}
                     outerRadius={100}
                     paddingAngle={2}
-                    onClick={(d: any) => {
-                      const marca = d?.name
-                      if (marca) setMarcaSelecionada((prev) => (prev === marca ? null : marca))
-                    }}
+                    onClick={(d: any) => toggleMarca(d?.name)}
                     cursor="pointer"
                   >
                     {donutData.map((d) => (
@@ -524,11 +474,9 @@ export default function Estoque() {
                 {porMarcaOrdenada.map((m) => (
                   <tr
                     key={m.marca}
-                    onClick={() =>
-                      setMarcaSelecionada((prev) => (prev === m.marca ? null : m.marca))
-                    }
+                    onClick={() => toggleMarca(m.marca)}
                     className={`border-t border-border/40 cursor-pointer hover:bg-muted/20 transition-colors ${
-                      marcaSelecionada === m.marca ? 'bg-primary/10' : ''
+                      marcasSelecionadas.includes(m.marca) ? 'bg-primary/10' : ''
                     }`}
                   >
                     <td className="px-3 py-2 font-medium">{m.marca}</td>
@@ -608,11 +556,9 @@ export default function Estoque() {
                 {mkpOrdenado.map((m) => (
                   <tr
                     key={m.marca}
-                    onClick={() =>
-                      setMarcaSelecionada((prev) => (prev === m.marca ? null : m.marca))
-                    }
+                    onClick={() => toggleMarca(m.marca)}
                     className={`border-t border-border/40 cursor-pointer hover:bg-muted/20 transition-colors ${
-                      marcaSelecionada === m.marca ? 'bg-primary/10' : ''
+                      marcasSelecionadas.includes(m.marca) ? 'bg-primary/10' : ''
                     }`}
                   >
                     <td className="px-3 py-2 font-medium">{m.marca}</td>
@@ -632,91 +578,58 @@ export default function Estoque() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="border-border/60 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Showroom por Marca (Custo)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={chartConfig} className="h-[260px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={showroomTop} margin={{ top: 10, right: 10, left: -20, bottom: 30 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
-                  <XAxis
-                    dataKey="marca"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 10 }}
-                    angle={-35}
-                    textAnchor="end"
-                    interval={0}
-                  />
-                  <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11 }} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="valorCustoShowroom"
-                    fill="var(--color-valorCustoShowroom)"
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Produtos com maior déficit (a comprar)</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto max-h-[300px]">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/30 sticky top-0">
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base">Produtos com maior déficit (a comprar)</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto max-h-[320px]">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/30 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                    Produto
+                  </th>
+                  <th className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted-foreground">
+                    Déficit
+                  </th>
+                  <th className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted-foreground">
+                    Custo a Comprar
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {deficit.length === 0 ? (
                   <tr>
-                    <th className="px-3 py-2 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                      Produto
-                    </th>
-                    <th className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted-foreground">
-                      Déficit
-                    </th>
-                    <th className="px-3 py-2 text-right text-xs uppercase tracking-wider text-muted-foreground">
-                      Custo a Comprar
-                    </th>
+                    <td colSpan={3} className="px-3 py-6 text-center text-muted-foreground">
+                      Nenhum déficit nesta seleção.
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {deficit.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-3 py-6 text-center text-muted-foreground">
-                        Nenhum déficit nesta seleção.
+                ) : (
+                  deficit.map((d) => (
+                    <tr key={d.produto_id} className="border-t border-border/40">
+                      <td className="px-3 py-2 max-w-[220px] truncate" title={d.produto}>
+                        {d.produto}
+                        <div className="text-[10px] text-muted-foreground">{d.marca}</div>
+                      </td>
+                      <td className="px-3 py-2 text-right text-destructive font-medium">
+                        {d.deficit_qtd.toFixed(0)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatCurrency(d.valor_custo_negativo)}
                       </td>
                     </tr>
-                  ) : (
-                    deficit.map((d) => (
-                      <tr key={d.produto_id} className="border-t border-border/40">
-                        <td className="px-3 py-2 max-w-[220px] truncate" title={d.produto}>
-                          {d.produto}
-                          <div className="text-[10px] text-muted-foreground">{d.marca}</div>
-                        </td>
-                        <td className="px-3 py-2 text-right text-destructive font-medium">
-                          {d.deficit_qtd.toFixed(0)}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          {formatCurrency(d.valor_custo_negativo)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       <PlanilhaTabela
         titulo="Planilha — produtos"
-        descricao="Uma linha por produto ativo de v_estoque_produtos, na marca selecionada. Confira com a planilha de estoque do Connect; baixe o CSV para comparar."
+        descricao="Uma linha por produto ativo de v_estoque_produtos, nas marcas selecionadas. Confira com a planilha de estoque do Connect; baixe o CSV para comparar."
         colunas={COLUNAS_ESTOQUE}
         rows={filtradas}
         nomeArquivo="estoque"

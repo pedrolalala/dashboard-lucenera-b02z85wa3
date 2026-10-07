@@ -54,12 +54,17 @@ export default function PeriodFilter({
   const range: DateRange | undefined =
     value.de || value.ate ? { from: isoToDate(value.de), to: isoToDate(value.ate) } : undefined
 
+  // SPEC-127 Escopo 4: no 1º clique, `ate` fica null (não copia o `de`) — antes
+  // isso "fechava" o range e o 2º clique reiniciava a seleção (o "tem que dar
+  // dois cliques no dia 1º" que o Vinícius reclamou). Fecha o popover quando o
+  // intervalo tem os dois extremos.
   const aoSelecionar = (r: DateRange | undefined) => {
     onChange({
       ...value,
       de: r?.from ? dateToIso(r.from) : null,
-      ate: r?.to ? dateToIso(r.to) : r?.from ? dateToIso(r.from) : null,
+      ate: r?.to ? dateToIso(r.to) : null,
     })
+    if (r?.from && r?.to) setAberto(false)
   }
 
   return (

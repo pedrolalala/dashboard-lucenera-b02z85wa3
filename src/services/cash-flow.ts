@@ -82,6 +82,39 @@ export function rangePreset(preset: PresetPeriodo): { de: string | null; ate: st
   }
 }
 
+/** Meses (AAAA-MM) presentes nas linhas, na coluna dada, mais recentes primeiro. */
+export function mesesPresentes(rows: FinanceiroRow[], campo: CampoData): string[] {
+  const set = new Set<string>()
+  for (const r of rows) {
+    const v = r[campo]?.slice(0, 7)
+    if (v) set.add(v)
+  }
+  return Array.from(set).sort((a, b) => b.localeCompare(a))
+}
+
+/** Primeiro e último dia (AAAA-MM-DD) de um mês AAAA-MM. */
+export function intervaloDoMes(mes: string): { de: string; ate: string } {
+  const [a, m] = mes.split('-').map(Number)
+  return { de: `${mes}-01`, ate: ymd(new Date(a, m, 0)) }
+}
+
+/** "AAAA-MM" -> "set/2026". */
+export function rotuloMesAaaaMm(mes: string): string {
+  const [a, m] = mes.split('-')
+  const nome = new Date(Number(a), Number(m) - 1, 1)
+    .toLocaleDateString('pt-BR', { month: 'short' })
+    .replace('.', '')
+  return `${nome}/${a}`
+}
+
+/** Se `p` cobre exatamente um mês-calendário, devolve "AAAA-MM"; senão null. */
+export function mesDoPeriodo(p: Periodo): string | null {
+  if (!p.de || !p.ate) return null
+  const mes = p.de.slice(0, 7)
+  const { de, ate } = intervaloDoMes(mes)
+  return p.de === de && p.ate === ate ? mes : null
+}
+
 /** Janela de mesmo tamanho imediatamente anterior a `p` (para o Δ dos KPIs). */
 export function periodoAnterior(p: Periodo): Periodo | null {
   if (!p.de || !p.ate) return null
@@ -129,7 +162,10 @@ export function filterByDescSubGrupo(
 }
 
 /** SPEC-126 Escopo 6: recorte por grupo (ex.: "INVESTIMENTO") em Contas a Pagar. */
-export function filterByDescGrupo(rows: FinanceiroRow[], descGrupo: string | null): FinanceiroRow[] {
+export function filterByDescGrupo(
+  rows: FinanceiroRow[],
+  descGrupo: string | null,
+): FinanceiroRow[] {
   if (!descGrupo) return rows
   return rows.filter((r) => r.desc_grupo === descGrupo)
 }
@@ -166,6 +202,22 @@ export function filterByPerfil(rows: FinanceiroRow[], perfil: string | null): Fi
 const realizado = (r: FinanceiroRow) => r.status_pago === 1
 const aberto = (r: FinanceiroRow) => r.status_pago === 0
 const valorAberto = (r: FinanceiroRow) => r.vl_parcela - r.vl_desconto
+
+const GRUPO_INVESTIMENTO_RE = /investimento/i
+
+/**
+ * SPEC-127 Escopo 3: total gasto (realizado) classificado como Investimento no
+ * período. Fica à parte do Resultado Operacional e do Ponto de Equilíbrio —
+ * mesma lógica do card Necessidade de Compra.
+ */
+export function computeInvestimentoRealizado(rows: FinanceiroRow[]): number {
+  let total = 0
+  for (const r of rows) {
+    if (r.tipo !== 'despesa' || !realizado(r)) continue
+    if (r.desc_grupo && GRUPO_INVESTIMENTO_RE.test(r.desc_grupo)) total += r.vl_pago
+  }
+  return total
+}
 
 export interface KpisVisaoGeral {
   receitasRealizadas: number
@@ -351,6 +403,235 @@ export function computePrevistoPagarPorDia(rows: FinanceiroRow[]): PrevistoDia[]
   return Array.from(map.entries())
     .map(([dia, previsto]) => ({ dia, previsto }))
     .sort((a, b) => a.dia.localeCompare(b.dia))
+}
+
+// SPEC-126 (reunião 31/08) — aba "Fluxo Futuro (Projeção)". Tudo que está EM
+// ABERTO (status_pago = 0), agrupado por MÊS de dt_vencimento, daqui pra
+// frente: "quanto ainda entra e quanto ainda sai, e em que mês". Bate com o
+// export do Connect — soma de (vl_parcela - vl_desconto) das parcelas em
+// aberto por mês de vencimento (mesma conta do "Em Aberto" das outras abas).
+
+function ym(iso: string): string {
+  return iso.slice(0, 7)
+}
+
+function rotuloMes(chave: string): string {
+  if (chave === 'vencido') return 'Vencido'
+  const [a, m] = chave.split('-')
+  const nome = new Date(Number(a), Number(m) - 1, 1)
+    .toLocaleDateString('pt-BR', { month: 'short' })
+    .replace('.', '')
+  return `${nome}/${a}`
+}
+
+/**
+ * Balde de mês do fluxo futuro para uma data de vencimento: `'vencido'` (venceu
+ * antes de hoje e não foi pago) ou `'AAAA-MM'`. É a chave usada tanto para
+ * agregar quanto para o cross-filter de clique no gráfico.
+ */
+export function baldeVencimento(dtVencimento: string | null): string | null {
+  if (!dtVencimento) return null
+  const venc = dtVencimento.slice(0, 10)
+  return venc < ymd(new Date()) ? 'vencido' : ym(venc)
+}
+
+/** Janela do fluxo futuro: de hoje até o fim do mês atual + (meses - 1). */
+export function janelaFuturo(meses: number): { de: string; ate: string } {
+  const hoje = new Date()
+  return {
+    de: ymd(hoje),
+    ate: ymd(new Date(hoje.getFullYear(), hoje.getMonth() + meses, 0)),
+  }
+}
+
+export interface FluxoFuturoMes {
+  chave: string
+  rotulo: string
+  aReceber: number
+  aPagar: number
+  saldoMes: number
+  saldoAcumulado: number
+}
+
+/**
+ * `rows` já deve vir filtrado pela janela/perfil desejados. Considera só
+ * status_pago = 0 com dt_vencimento. Parcela vencida e ainda não paga cai no
+ * balde "Vencido" (primeira linha); as demais, no mês de vencimento. O saldo
+ * acumulado parte de zero — é o efeito líquido projetado sobre o caixa a
+ * partir de hoje, não inclui o saldo atual em banco.
+ */
+export function computeFluxoFuturoPorMes(rows: FinanceiroRow[]): FluxoFuturoMes[] {
+  const map = new Map<string, { aReceber: number; aPagar: number }>()
+  for (const r of rows) {
+    if (!aberto(r) || !r.dt_vencimento) continue
+    const chave = baldeVencimento(r.dt_vencimento)!
+    const b = map.get(chave) ?? { aReceber: 0, aPagar: 0 }
+    if (r.tipo === 'receita') b.aReceber += valorAberto(r)
+    else b.aPagar += valorAberto(r)
+    map.set(chave, b)
+  }
+  const chaves = Array.from(map.keys()).sort((a, b) => {
+    if (a === 'vencido') return -1
+    if (b === 'vencido') return 1
+    return a.localeCompare(b)
+  })
+  let acumulado = 0
+  return chaves.map((chave) => {
+    const { aReceber, aPagar } = map.get(chave)!
+    const saldoMes = aReceber - aPagar
+    acumulado += saldoMes
+    return {
+      chave,
+      rotulo: rotuloMes(chave),
+      aReceber,
+      aPagar,
+      saldoMes,
+      saldoAcumulado: acumulado,
+    }
+  })
+}
+
+export interface GastoFuturoGrupo {
+  grupo: string
+  subGrupo: string
+  parcelas: number
+  total: number
+}
+
+/** Despesa em aberto (status_pago = 0) agregada por grupo + sub-grupo. */
+export function computeGastoFuturoPorGrupo(rows: FinanceiroRow[]): GastoFuturoGrupo[] {
+  const map = new Map<string, GastoFuturoGrupo>()
+  for (const r of rows) {
+    if (!aberto(r) || r.tipo !== 'despesa' || !r.dt_vencimento) continue
+    const grupo = r.desc_grupo ?? 'SEM GRUPO'
+    const subGrupo = r.desc_sub_grupo ?? 'SEM SUB-GRUPO'
+    const chave = `${grupo}||${subGrupo}`
+    const b = map.get(chave) ?? { grupo, subGrupo, parcelas: 0, total: 0 }
+    b.parcelas += 1
+    b.total += valorAberto(r)
+    map.set(chave, b)
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total)
+}
+
+/**
+ * SPEC-127 Escopo 5 — "pendência 31/12". O Connect joga título em aberto sem
+ * vencimento real para 31 de dezembro (de qualquer ano). Esses títulos saem da
+ * visão do Fluxo Futuro e vão para a aba "31-12 / Pendências".
+ */
+export function ehPendencia3112(dtVencimento: string | null): boolean {
+  if (!dtVencimento) return false
+  return dtVencimento.slice(5, 10) === '12-31'
+}
+
+export interface PendenciaAno {
+  ano: string
+  aReceber: number
+  aPagar: number
+  qtdReceber: number
+  qtdPagar: number
+}
+
+/** Pendências 31/12 em aberto (status_pago = 0) agrupadas por ano de vencimento. */
+export function computePendencias3112PorAno(rows: FinanceiroRow[]): PendenciaAno[] {
+  const map = new Map<string, PendenciaAno>()
+  for (const r of rows) {
+    if (!aberto(r) || !ehPendencia3112(r.dt_vencimento)) continue
+    const ano = r.dt_vencimento!.slice(0, 4)
+    const b = map.get(ano) ?? { ano, aReceber: 0, aPagar: 0, qtdReceber: 0, qtdPagar: 0 }
+    if (r.tipo === 'receita') {
+      b.aReceber += valorAberto(r)
+      b.qtdReceber += 1
+    } else {
+      b.aPagar += valorAberto(r)
+      b.qtdPagar += 1
+    }
+    map.set(ano, b)
+  }
+  return Array.from(map.values()).sort((a, b) => a.ano.localeCompare(b.ano))
+}
+
+export interface AbertoPorGrupo {
+  grupo: string
+  aReceber: number
+  aPagar: number
+}
+
+/**
+ * Em aberto (status_pago = 0) por `desc_grupo`, separando receber × pagar. É o
+ * drill-down do gráfico do Fluxo Futuro quando um mês está selecionado
+ * ("composição de setembro por grupo").
+ */
+export function computeAbertoPorGrupo(rows: FinanceiroRow[]): AbertoPorGrupo[] {
+  const map = new Map<string, AbertoPorGrupo>()
+  for (const r of rows) {
+    if (!aberto(r) || !r.dt_vencimento) continue
+    const grupo = r.desc_grupo ?? 'SEM GRUPO'
+    const b = map.get(grupo) ?? { grupo, aReceber: 0, aPagar: 0 }
+    if (r.tipo === 'receita') b.aReceber += valorAberto(r)
+    else b.aPagar += valorAberto(r)
+    map.set(grupo, b)
+  }
+  return Array.from(map.values()).sort((a, b) => b.aReceber + b.aPagar - (a.aReceber + a.aPagar))
+}
+
+export interface FatiaDespesaFutura {
+  nome: string
+  total: number
+  parcelas: number
+}
+
+/**
+ * Repartição da DESPESA em aberto (status_pago = 0) por `desc_grupo` ou
+ * `desc_sub_grupo` — alimenta o gráfico de pizza do Fluxo Futuro. Só despesa:
+ * o chefe reclamou que clicar numa despesa trazia receita junto (ex.: "VENDAS
+ * A PRAZO" aparecendo sob "ADMINISTRATIVAS"). `rows` já vem recortado por
+ * mês/perfil/grupo pelo chamador.
+ */
+export function computeDespesaAbertoPorDimensao(
+  rows: FinanceiroRow[],
+  dimensao: 'grupo' | 'sub_grupo',
+): FatiaDespesaFutura[] {
+  const map = new Map<string, FatiaDespesaFutura>()
+  for (const r of rows) {
+    if (!aberto(r) || r.tipo !== 'despesa' || !r.dt_vencimento) continue
+    const nome =
+      dimensao === 'grupo' ? (r.desc_grupo ?? 'SEM GRUPO') : (r.desc_sub_grupo ?? 'SEM SUB-GRUPO')
+    const f = map.get(nome) ?? { nome, total: 0, parcelas: 0 }
+    f.total += valorAberto(r)
+    f.parcelas += 1
+    map.set(nome, f)
+  }
+  return Array.from(map.values()).sort((a, b) => b.total - a.total)
+}
+
+export interface TotaisFluxoFuturo {
+  aReceber: number
+  aPagar: number
+  saldo: number
+  aReceberVencido: number
+  aPagarVencido: number
+}
+
+export function computeTotaisFluxoFuturo(rows: FinanceiroRow[]): TotaisFluxoFuturo {
+  const hoje = ymd(new Date())
+  let aReceber = 0
+  let aPagar = 0
+  let aReceberVencido = 0
+  let aPagarVencido = 0
+  for (const r of rows) {
+    if (!aberto(r) || !r.dt_vencimento) continue
+    const v = valorAberto(r)
+    const vencido = r.dt_vencimento.slice(0, 10) < hoje
+    if (r.tipo === 'receita') {
+      aReceber += v
+      if (vencido) aReceberVencido += v
+    } else {
+      aPagar += v
+      if (vencido) aPagarVencido += v
+    }
+  }
+  return { aReceber, aPagar, saldo: aReceber - aPagar, aReceberVencido, aPagarVencido }
 }
 
 export interface CustoFixoVariavel {

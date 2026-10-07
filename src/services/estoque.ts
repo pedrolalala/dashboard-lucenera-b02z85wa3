@@ -55,6 +55,21 @@ export function filterByMarca(
   return rows.filter((r) => r.marca === marca)
 }
 
+/**
+ * SPEC-127 Escopo 1C: filtro de marca com múltipla seleção. Lista vazia = todas
+ * as marcas. Substitui o `filterByMarca` de seleção única no Estoque/Showroom.
+ */
+export function filterByMarcas(rows: EstoqueProdutoRow[], marcas: string[]): EstoqueProdutoRow[] {
+  if (marcas.length === 0) return rows
+  const set = new Set(marcas)
+  return rows.filter((r) => set.has(r.marca))
+}
+
+/** Só as peças que estão no setor showroom (aba /showroom, SPEC-127 Escopo 1B). */
+export function apenasShowroom(rows: EstoqueProdutoRow[]): EstoqueProdutoRow[] {
+  return rows.filter((r) => (r.estoque_showroom ?? 0) > 0)
+}
+
 export interface KpisEstoque {
   valorCustoTotal: number
   valorVendaTotal: number
