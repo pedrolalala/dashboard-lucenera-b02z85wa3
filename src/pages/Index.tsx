@@ -51,6 +51,7 @@ import {
   type Periodo,
 } from '@/services/cash-flow'
 import { fetchNecessidadeCompra, computeGastoFuturoInevitavel } from '@/services/necessidade-compra'
+import { supabase } from '@/lib/supabase/client'
 
 const chartConfig = {
   resultado: { label: 'Resultado Diário', color: 'hsl(var(--chart-1))' },
@@ -144,6 +145,15 @@ export default function Index() {
   }))
   const [tipoCustoSelecionado, setTipoCustoSelecionado] = useState<TipoCusto | null>(null)
   const [gastoFuturoInevitavel, setGastoFuturoInevitavel] = useState<number | null>(null)
+  // SPEC-195 F2 (reunião 30.03, Filippo): Distribuição de Lucro só para Filippo, Pedro e
+  // Vinícius. O banco já filtra as linhas (migration 196); aqui só some o cartão.
+  const [podeVerDistribuicao, setPodeVerDistribuicao] = useState(false)
+
+  useEffect(() => {
+    supabase
+      .rpc('pode_ver_distribuicao_lucro' as any)
+      .then(({ data }) => setPodeVerDistribuicao(data === true))
+  }, [])
 
   useEffect(() => {
     fetchFinanceiro()
@@ -290,7 +300,12 @@ export default function Index() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div
+        className={cn(
+          'grid grid-cols-1 gap-4',
+          podeVerDistribuicao ? 'sm:grid-cols-3' : 'sm:grid-cols-2',
+        )}
+      >
         <KpiCard
           title="Receitas Realizadas"
           value={formatCurrency(kpis.receitasRealizadas)}
@@ -324,19 +339,21 @@ export default function Index() {
             )
           }
         />
-        <KpiCard
-          title="Distribuição de Lucro"
-          value={formatCurrency(kpis.distribuicaoLucroTotal)}
-          icon={PiggyBank}
-          delta={
-            kpisAnterior && (
-              <DeltaBadge
-                atual={kpis.distribuicaoLucroTotal}
-                anterior={kpisAnterior.distribuicaoLucroTotal}
-              />
-            )
-          }
-        />
+        {podeVerDistribuicao && (
+          <KpiCard
+            title="Distribuição de Lucro"
+            value={formatCurrency(kpis.distribuicaoLucroTotal)}
+            icon={PiggyBank}
+            delta={
+              kpisAnterior && (
+                <DeltaBadge
+                  atual={kpis.distribuicaoLucroTotal}
+                  anterior={kpisAnterior.distribuicaoLucroTotal}
+                />
+              )
+            }
+          />
+        )}
       </div>
 
       {/*
