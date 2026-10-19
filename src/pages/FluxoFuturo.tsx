@@ -531,8 +531,8 @@ export default function FluxoFuturo() {
           <strong className="text-foreground">De onde vem cada valor.</strong> "A Pagar" soma o
           livro-caixa do Connect <strong className="text-foreground">e</strong> as parcelas dos
           pedidos de compra <strong className="text-foreground">aprovados</strong> no sistema de
-          Compras (sub-grupo "PEDIDOS DE COMPRA"). O pedido sai do "A Pagar" quando é Concluído na
-          entrada de mercadoria, porque aí a nota vai para o Connect. "Pedidos fora do A Pagar"
+          Compras (sub-grupo "PEDIDOS DE COMPRA"). A parcela fica no "A Pagar" até a baixa do
+          financeiro (paga) ou o cancelamento do pedido. "Pedidos fora do A Pagar"
           (abaixo) são os que aguardam aprovação do fornecedor e os pedidos antigos do Connect
           (PC-LEGADO); "Previsões" vem de outro export do Connect. Esses dois blocos{' '}
           <strong className="text-foreground">não devem ser somados</strong> ao "A Pagar".

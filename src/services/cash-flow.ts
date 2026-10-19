@@ -48,9 +48,9 @@ export async function fetchFinanceiro(): Promise<FinanceiroRow[]> {
 }
 
 // SPEC-209 F: pedido de compra APROVADO (sistema de Compras) entra como Contas a Pagar, uma linha
-// por parcela, em aberto, no vencimento da parcela. A view já tira o que não deve somar:
-// aguardando aprovar, concluído (a duplicata vem do Connect), cancelado, PC-LEGADO-* (Connect) e,
-// no concluído parcialmente, a parte que já chegou. Se falhar, o resto do painel continua.
+// por parcela, em aberto, no vencimento da parcela, até a baixa do financeiro (Lana/Carol) ou o
+// cancelamento. A view já tira aguardando aprovar, cancelado, parcela paga e PC-LEGADO-* (Connect).
+// Se falhar, o resto do painel continua.
 async function fetchContasPagarPedidosCompra(): Promise<FinanceiroRow[]> {
   try {
     const { data, error } = await (supabase.from('vw_contas_pagar_pedidos_compra' as any) as any)

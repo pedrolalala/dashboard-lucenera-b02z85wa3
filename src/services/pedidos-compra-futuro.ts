@@ -43,7 +43,7 @@ interface PedidoCompraParcelaRow {
 /**
  * Bloco 2 — parcelas do app interno de Compras que AINDA NÃO estão no "A Pagar" (SPEC-209 F):
  * pedido aguardando aprovação do fornecedor e os PC-LEGADO-* (cópias do Connect, cuja duplicata já
- * entra pelo Connect). Pedido aprovado/concluído parcialmente já soma no "A Pagar".
+ * entra pelo Connect). Pedido aprovado (e depois concluído) já soma no "A Pagar" até a baixa.
  */
 export async function fetchPedidoCompraParcelasAbertas(): Promise<PedidoCompraParcelaAberta[]> {
   const out: PedidoCompraParcelaAberta[] = []
