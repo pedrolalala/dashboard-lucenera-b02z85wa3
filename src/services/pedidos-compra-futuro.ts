@@ -40,7 +40,11 @@ interface PedidoCompraParcelaRow {
   } | null
 }
 
-/** Bloco 2 — parcelas em aberto do app interno de Compras. */
+/**
+ * Bloco 2 — parcelas do app interno de Compras que AINDA NÃO estão no "A Pagar" (SPEC-209 F):
+ * pedido aguardando aprovação do fornecedor e os PC-LEGADO-* (cópias do Connect, cuja duplicata já
+ * entra pelo Connect). Pedido aprovado/concluído parcialmente já soma no "A Pagar".
+ */
 export async function fetchPedidoCompraParcelasAbertas(): Promise<PedidoCompraParcelaAberta[]> {
   const out: PedidoCompraParcelaAberta[] = []
   let from = 0
@@ -56,6 +60,9 @@ export async function fetchPedidoCompraParcelasAbertas(): Promise<PedidoCompraPa
     const page = (data ?? []) as PedidoCompraParcelaRow[]
     for (const r of page) {
       if (!r.pedidos_compra) continue
+      const legado = (r.pedidos_compra.numero ?? '').startsWith('PC-LEGADO-')
+      if (!legado && r.pedidos_compra.status !== 'aguardando_aprovar') continue
+      if (legado && r.pedidos_compra.status === 'recebido') continue
       out.push({
         id: r.id,
         numero: r.pedidos_compra.numero,

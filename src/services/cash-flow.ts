@@ -19,6 +19,9 @@ export interface FinanceiroRow {
   cod_duplicata: number | null
   /** SPEC-064: rótulo Ribeirão/São Paulo, classificado manualmente em /transacoes. */
   perfil: string | null
+  /** SPEC-209 F: 'pedido_compra' = parcela de pedido de compra aprovado (sistema de Compras). */
+  origem?: 'pedido_compra'
+  pedido_numero?: string
 }
 
 const COLUNAS =
@@ -40,7 +43,30 @@ export async function fetchFinanceiro(): Promise<FinanceiroRow[]> {
     if (page.length < PAGE_SIZE) break
     from += PAGE_SIZE
   }
+  rows.push(...(await fetchContasPagarPedidosCompra()))
   return rows
+}
+
+// SPEC-209 F: pedido de compra APROVADO (sistema de Compras) entra como Contas a Pagar, uma linha
+// por parcela, em aberto, no vencimento da parcela. A view já tira o que não deve somar:
+// aguardando aprovar, concluído (a duplicata vem do Connect), cancelado, PC-LEGADO-* (Connect) e,
+// no concluído parcialmente, a parte que já chegou. Se falhar, o resto do painel continua.
+async function fetchContasPagarPedidosCompra(): Promise<FinanceiroRow[]> {
+  try {
+    const { data, error } = await (supabase.from('vw_contas_pagar_pedidos_compra' as any) as any)
+      .select(`${COLUNAS},origem,pedido_numero`)
+      .limit(PAGE_SIZE)
+    if (error) throw error
+    return ((data ?? []) as any[]).map((r) => ({
+      ...r,
+      vl_parcela: Number(r.vl_parcela) || 0,
+      vl_pago: Number(r.vl_pago) || 0,
+      vl_desconto: Number(r.vl_desconto) || 0,
+    })) as FinanceiroRow[]
+  } catch (e) {
+    console.warn('Contas a pagar de pedidos de compra indisponível:', e)
+    return []
+  }
 }
 
 // SPEC-126 (reunião 31/08): o filtro passou de Ano/Mês para intervalo livre

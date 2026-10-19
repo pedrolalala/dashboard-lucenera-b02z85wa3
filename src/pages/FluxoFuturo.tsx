@@ -528,14 +528,14 @@ export default function FluxoFuturo() {
       <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
         <p className="text-muted-foreground">
-          <strong className="text-foreground">Atenção — fontes sem vínculo entre si.</strong> "A
-          Pagar" vem do livro-caixa do Connect; "Pedidos de Compra" (abaixo) vem do sistema interno
-          de Compras; "Previsões" (abaixo) vem de outro export do Connect (planilha PedidoCompra).
-          Quando a nota fiscal de um pedido de compra é lançada no livro-caixa do Connect, o mesmo
-          valor pode aparecer em mais de um bloco ao mesmo tempo — os valores{' '}
-          <strong className="text-foreground">não devem ser somados</strong> entre si até existir um
-          jeito de cruzar as fontes. (Os pedidos já duplicados entre "Pedidos de Compra" e
-          "Previsões" já saem de "Previsões" automaticamente.)
+          <strong className="text-foreground">De onde vem cada valor.</strong> "A Pagar" soma o
+          livro-caixa do Connect <strong className="text-foreground">e</strong> as parcelas dos
+          pedidos de compra <strong className="text-foreground">aprovados</strong> no sistema de
+          Compras (sub-grupo "PEDIDOS DE COMPRA"). O pedido sai do "A Pagar" quando é Concluído na
+          entrada de mercadoria, porque aí a nota vai para o Connect. "Pedidos fora do A Pagar"
+          (abaixo) são os que aguardam aprovação do fornecedor e os pedidos antigos do Connect
+          (PC-LEGADO); "Previsões" vem de outro export do Connect. Esses dois blocos{' '}
+          <strong className="text-foreground">não devem ser somados</strong> ao "A Pagar".
         </p>
       </div>
 
@@ -561,7 +561,7 @@ export default function FluxoFuturo() {
           value={formatCurrency(totais.saldo)}
           icon={Scale}
           tone={totais.saldo >= 0 ? 'positive' : 'negative'}
-          info="A Receber − A Pagar no mês/horizonte. Não inclui o saldo atual em banco nem Pedidos de Compra/Previsões (ver aviso acima)."
+          info="A Receber − A Pagar no mês/horizonte (o A Pagar já inclui os pedidos de compra aprovados). Não inclui o saldo atual em banco, os pedidos fora do A Pagar nem as Previsões (ver aviso acima)."
         />
         <KpiCard
           title="Vencido (líquido)"
@@ -573,11 +573,11 @@ export default function FluxoFuturo() {
           )} − a pagar vencido ${formatCurrency(totais.aPagarVencido)}.`}
         />
         <KpiCard
-          title="Pedidos de Compra em Aberto"
+          title="Pedidos fora do A Pagar"
           value={formatCurrency(totalPedidosCompra)}
           icon={Package}
           tone="warning"
-          info="Parcelas em aberto do sistema interno de Compras (pedidos_compra/pedido_compra_parcelas). Pode se sobrepor com Contas a Pagar quando a NF já foi lançada no Connect — ver aviso acima. Filtra por Perfil."
+          info="Parcelas de pedidos de compra que ainda não entram no A Pagar: aguardando aprovação do fornecedor e pedidos antigos copiados do Connect (PC-LEGADO). Pedido aprovado já está somado no A Pagar. Filtra por Perfil."
         />
         <KpiCard
           title="Previsões de Compra (estimado)"
@@ -983,8 +983,8 @@ export default function FluxoFuturo() {
       />
 
       <PlanilhaTabela
-        titulo="Pedidos de Compra em aberto"
-        descricao="Parcelas em aberto do sistema interno de Compras (pedidos_compra/pedido_compra_parcelas), filtradas pelo Perfil selecionado acima. Pode se sobrepor com Contas a Pagar — ver aviso no topo da página."
+        titulo="Pedidos de Compra fora do A Pagar"
+        descricao="Parcelas de pedidos aguardando aprovação do fornecedor e de pedidos antigos copiados do Connect (PC-LEGADO), filtradas pelo Perfil. Os pedidos aprovados já aparecem no A Pagar e na planilha acima, no sub-grupo PEDIDOS DE COMPRA."
         colunas={COLUNAS_PEDIDOS_COMPRA}
         rows={pedidosCompraFiltrados}
         nomeArquivo="pedidos-compra-em-aberto"
