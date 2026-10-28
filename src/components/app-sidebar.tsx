@@ -12,6 +12,7 @@ import {
   History,
   Settings,
   Tags,
+  ArrowLeftRight,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -38,6 +39,7 @@ const itemsFinanceiro = [
 const itemsEstoque = [
   { title: 'Estoque', url: '/estoque', icon: Boxes },
   { title: 'Showroom', url: '/showroom', icon: ShoppingBag },
+  { title: 'Movimentação do item', url: '/movimentacao-item', icon: ArrowLeftRight },
 ]
 
 const itemsSistema = [

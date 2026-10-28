@@ -16,6 +16,7 @@ const Pendencias3112 = lazy(() => import('./pages/Pendencias3112'))
 const Transacoes = lazy(() => import('./pages/Transacoes'))
 const Estoque = lazy(() => import('./pages/Estoque'))
 const Showroom = lazy(() => import('./pages/Showroom'))
+const MovimentacaoItem = lazy(() => import('./pages/MovimentacaoItem'))
 const Sync = lazy(() => import('./pages/Sync'))
 const Logs = lazy(() => import('./pages/Logs'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -46,6 +47,7 @@ const App = () => (
               <Route path="/transacoes" element={<Transacoes />} />
               <Route path="/estoque" element={<Estoque />} />
               <Route path="/showroom" element={<Showroom />} />
+              <Route path="/movimentacao-item" element={<MovimentacaoItem />} />
               <Route path="/sync" element={<Sync />} />
               <Route path="/logs" element={<Logs />} />
               <Route path="/settings" element={<Settings />} />
