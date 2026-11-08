@@ -22,10 +22,12 @@ export interface FinanceiroRow {
   /** SPEC-209 F: 'pedido_compra' = parcela de pedido de compra aprovado (sistema de Compras). */
   origem?: 'pedido_compra'
   pedido_numero?: string
+  /** SPEC-258: conta ainda PREVISTA (valor/data podem mudar), vinda da view do financeiro novo. */
+  previsao?: boolean | null
 }
 
 const COLUNAS =
-  'id,tipo,descricao,desc_sub_grupo,desc_grupo,natureza,tipo_custo,status_pago,dt_emissao,dt_pagamento,dt_vencimento,vl_pago,vl_parcela,vl_desconto,cod_duplicata,perfil'
+  'id,tipo,descricao,desc_sub_grupo,desc_grupo,natureza,tipo_custo,status_pago,dt_emissao,dt_pagamento,dt_vencimento,vl_pago,vl_parcela,vl_desconto,cod_duplicata,perfil,previsao'
 
 const PAGE_SIZE = 1000
 
@@ -497,6 +499,75 @@ export function computeFluxoFuturoPorMes(rows: FinanceiroRow[]): FluxoFuturoMes[
       saldoAcumulado: acumulado,
     }
   })
+}
+
+export interface FluxoQuatroColunasMes {
+  chave: string
+  rotulo: string
+  receitaRealizada: number
+  receitaPrevista: number
+  /** parte da receita prevista que ainda é PREVISÃO (valor/data podem mudar). */
+  receitaPrevisao: number
+  despesaRealizada: number
+  despesaPrevista: number
+  despesaPrevisao: number
+  saldo: number
+}
+
+/**
+ * SPEC-258 Fase 5 — Fluxo Futuro em 4 colunas: receita realizada | receita prevista | despesa realizada | despesa prevista (+ saldo).
+ *  - REALIZADA = status_pago = 1, no mês de dt_pagamento, valor pago (só os últimos `mesesAtras` meses, para a tabela não virar histórico inteiro).
+ *  - PREVISTA = tudo que ainda vai entrar/sair: status_pago = 0, no mês de dt_vencimento, valor líquido (parcela - desconto). Conta vencida e não paga
+ *    cai na linha "Vencido". Pendência 31/12 (data-lixo da Connect) fica de fora, como no resto da tela. `*Previsao` é a parte ainda prevista (não firme).
+ *  - saldo do mês = (receita realizada + prevista) - (despesa realizada + prevista).
+ * `mesesFrente` limita os meses futuros (null = todos).
+ */
+export function computeFluxoQuatroColunas(
+  rows: FinanceiroRow[],
+  opts: { mesesAtras: number; mesesFrente: number | null },
+): FluxoQuatroColunasMes[] {
+  const hoje = new Date()
+  const primeiroMes = ym(ymd(new Date(hoje.getFullYear(), hoje.getMonth() - opts.mesesAtras, 1)))
+  const ultimoMes =
+    opts.mesesFrente === null ? null : ym(ymd(new Date(hoje.getFullYear(), hoje.getMonth() + opts.mesesFrente - 1, 1)))
+  const vazio = () => ({
+    receitaRealizada: 0, receitaPrevista: 0, receitaPrevisao: 0,
+    despesaRealizada: 0, despesaPrevista: 0, despesaPrevisao: 0,
+  })
+  const map = new Map<string, ReturnType<typeof vazio>>()
+  const bucket = (chave: string) => {
+    let b = map.get(chave)
+    if (!b) { b = vazio(); map.set(chave, b) }
+    return b
+  }
+  for (const r of rows) {
+    const receita = r.tipo === 'receita'
+    if (realizado(r) && r.dt_pagamento) {
+      const mes = ym(r.dt_pagamento)
+      if (mes < primeiroMes || (ultimoMes !== null && mes > ultimoMes)) continue
+      const b = bucket(mes)
+      if (receita) b.receitaRealizada += r.vl_pago
+      else b.despesaRealizada += r.vl_pago
+    } else if (aberto(r) && r.dt_vencimento && !ehPendencia3112(r.dt_vencimento)) {
+      const chave = baldeVencimento(r.dt_vencimento)!
+      if (chave !== 'vencido' && ultimoMes !== null && chave > ultimoMes) continue
+      const b = bucket(chave)
+      const v = valorAberto(r)
+      if (receita) { b.receitaPrevista += v; if (r.previsao) b.receitaPrevisao += v }
+      else { b.despesaPrevista += v; if (r.previsao) b.despesaPrevisao += v }
+    }
+  }
+  return Array.from(map.keys())
+    .sort((a, b) => (a === 'vencido' ? -1 : b === 'vencido' ? 1 : a.localeCompare(b)))
+    .map((chave) => {
+      const b = map.get(chave)!
+      return {
+        chave,
+        rotulo: rotuloMes(chave),
+        ...b,
+        saldo: b.receitaRealizada + b.receitaPrevista - b.despesaRealizada - b.despesaPrevista,
+      }
+    })
 }
 
 export interface GastoFuturoGrupo {

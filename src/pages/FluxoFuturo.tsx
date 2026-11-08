@@ -8,6 +8,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import FilterChip from '@/components/FilterChip'
@@ -45,6 +46,7 @@ import {
   janelaFuturo,
   baldeVencimento,
   computeFluxoFuturoPorMes,
+  computeFluxoQuatroColunas,
   computeDespesaAbertoPorDimensao,
   computeGastoFuturoPorGrupo,
   computeTotaisFluxoFuturo,
@@ -286,6 +288,27 @@ export default function FluxoFuturo() {
   }, [rows, perfil])
 
   const porMes = useMemo(() => computeFluxoFuturoPorMes(abertas), [abertas])
+
+  // SPEC-258: tabela em 4 colunas (receita/despesa × realizada/prevista) + saldo. Respeita o Perfil e o Horizonte; ignora o recorte de mês/grupo
+  // e o intervalo livre (é a visão geral do fluxo). Realizado: últimos 3 meses.
+  const quatroColunas = useMemo(
+    () => computeFluxoQuatroColunas(filterByPerfil(rows, perfil), { mesesAtras: 3, mesesFrente: meses }),
+    [rows, perfil, meses],
+  )
+  const totalQuatro = useMemo(
+    () =>
+      quatroColunas.reduce(
+        (t, m) => ({
+          receitaRealizada: t.receitaRealizada + m.receitaRealizada,
+          receitaPrevista: t.receitaPrevista + m.receitaPrevista,
+          despesaRealizada: t.despesaRealizada + m.despesaRealizada,
+          despesaPrevista: t.despesaPrevista + m.despesaPrevista,
+          saldo: t.saldo + m.saldo,
+        }),
+        { receitaRealizada: 0, receitaPrevista: 0, despesaRealizada: 0, despesaPrevista: 0, saldo: 0 },
+      ),
+    [quatroColunas],
+  )
 
   // Nível 1: recorte pelo mês (Select ou clique na barra).
   const abertasDoMes = useMemo(() => {
@@ -612,6 +635,73 @@ export default function FluxoFuturo() {
           do mês.
         </p>
       )}
+
+      <Card className="border-border/60 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base">Fluxo por mês: realizado e previsto</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            <strong>Realizada</strong> = o que já entrou/saiu (por mês de pagamento, últimos 3 meses). <strong>Prevista</strong> = o que ainda vai
+            entrar/sair (por mês de vencimento; conta vencida e não paga fica em "Vencido"). Saldo do mês = receita (realizada + prevista) − despesa
+            (realizada + prevista). Segue o Perfil e o Horizonte; pendências 31/12 ficam de fora.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {quatroColunas.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Nada realizado nem previsto nesta seleção.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Mês</TableHead>
+                    <TableHead className="text-right">Receita realizada</TableHead>
+                    <TableHead className="text-right">Receita prevista</TableHead>
+                    <TableHead className="text-right">Despesa realizada</TableHead>
+                    <TableHead className="text-right">Despesa prevista</TableHead>
+                    <TableHead className="text-right">Saldo do mês</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {quatroColunas.map((m) => (
+                    <TableRow key={m.chave}>
+                      <TableCell className="font-medium">{m.rotulo}</TableCell>
+                      <TableCell className="text-right text-emerald-600">{m.receitaRealizada ? formatCurrency(m.receitaRealizada) : '—'}</TableCell>
+                      <TableCell className="text-right text-emerald-600">
+                        {m.receitaPrevista ? formatCurrency(m.receitaPrevista) : '—'}
+                        {m.receitaPrevisao > 0 && (
+                          <div className="text-[10px] text-muted-foreground">dos quais {formatCurrency(m.receitaPrevisao)} em previsão</div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right text-destructive">{m.despesaRealizada ? formatCurrency(m.despesaRealizada) : '—'}</TableCell>
+                      <TableCell className="text-right text-destructive">
+                        {m.despesaPrevista ? formatCurrency(m.despesaPrevista) : '—'}
+                        {m.despesaPrevisao > 0 && (
+                          <div className="text-[10px] text-muted-foreground">dos quais {formatCurrency(m.despesaPrevisao)} em previsão</div>
+                        )}
+                      </TableCell>
+                      <TableCell className={cn('text-right font-semibold', m.saldo < 0 ? 'text-destructive' : 'text-emerald-600')}>
+                        {formatCurrency(m.saldo)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+                <TableFooter>
+                  <TableRow>
+                    <TableCell className="font-semibold">Total</TableCell>
+                    <TableCell className="text-right font-semibold">{formatCurrency(totalQuatro.receitaRealizada)}</TableCell>
+                    <TableCell className="text-right font-semibold">{formatCurrency(totalQuatro.receitaPrevista)}</TableCell>
+                    <TableCell className="text-right font-semibold">{formatCurrency(totalQuatro.despesaRealizada)}</TableCell>
+                    <TableCell className="text-right font-semibold">{formatCurrency(totalQuatro.despesaPrevista)}</TableCell>
+                    <TableCell className={cn('text-right font-bold', totalQuatro.saldo < 0 ? 'text-destructive' : 'text-emerald-600')}>
+                      {formatCurrency(totalQuatro.saldo)}
+                    </TableCell>
+                  </TableRow>
+                </TableFooter>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="border-border/60 shadow-sm">
         <CardHeader>
