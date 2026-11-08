@@ -29,44 +29,26 @@ const COLUNAS =
 
 const PAGE_SIZE = 1000
 
+// SPEC-258 Fase 3 passo 2: o realizado passou a ler a view do financeiro NOVO (v_financeiro_realizado_novo: legado da Connect +
+// o que nasce no sistema). Pedido de compra aprovado e nota de entrada já vêm nela (a previsão do pedido diminui com a nota),
+// por isso NÃO se soma mais a fonte à parte vw_contas_pagar_pedidos_compra (SPEC-209 F): somar de novo dobraria o a pagar.
+// Mesmas colunas, mesmo portão de acesso (dashboard-financeiro) e mesmas 18.316 linhas do legado que a view antiga.
 export async function fetchFinanceiro(): Promise<FinanceiroRow[]> {
   const rows: FinanceiroRow[] = []
   let from = 0
   while (true) {
     const { data, error } = await supabase
-      .from('v_financeiro_realizado')
+      .from('v_financeiro_realizado_novo' as any)
       .select(COLUNAS)
+      .order('id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
     if (error) throw error
-    const page = (data as FinanceiroRow[]) ?? []
+    const page = ((data as unknown) as FinanceiroRow[]) ?? []
     rows.push(...page)
     if (page.length < PAGE_SIZE) break
     from += PAGE_SIZE
   }
-  rows.push(...(await fetchContasPagarPedidosCompra()))
   return rows
-}
-
-// SPEC-209 F: pedido de compra APROVADO (sistema de Compras) entra como Contas a Pagar, uma linha
-// por parcela, em aberto, no vencimento da parcela, até a baixa do financeiro (Lana/Carol) ou o
-// cancelamento. A view já tira aguardando aprovar, cancelado, parcela paga e PC-LEGADO-* (Connect).
-// Se falhar, o resto do painel continua.
-async function fetchContasPagarPedidosCompra(): Promise<FinanceiroRow[]> {
-  try {
-    const { data, error } = await (supabase.from('vw_contas_pagar_pedidos_compra' as any) as any)
-      .select(`${COLUNAS},origem,pedido_numero`)
-      .limit(PAGE_SIZE)
-    if (error) throw error
-    return ((data ?? []) as any[]).map((r) => ({
-      ...r,
-      vl_parcela: Number(r.vl_parcela) || 0,
-      vl_pago: Number(r.vl_pago) || 0,
-      vl_desconto: Number(r.vl_desconto) || 0,
-    })) as FinanceiroRow[]
-  } catch (e) {
-    console.warn('Contas a pagar de pedidos de compra indisponível:', e)
-    return []
-  }
 }
 
 // SPEC-126 (reunião 31/08): o filtro passou de Ano/Mês para intervalo livre
