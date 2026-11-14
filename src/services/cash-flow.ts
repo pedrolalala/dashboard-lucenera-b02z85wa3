@@ -160,7 +160,7 @@ export function filterByTipoCusto(
   tipoCusto: string | null,
 ): FinanceiroRow[] {
   if (!tipoCusto) return rows
-  return rows.filter((r) => r.tipo_custo === tipoCusto)
+  return rows.filter((r) => tipoCustoDe(r) === tipoCusto)
 }
 
 export function filterByDescSubGrupo(
@@ -713,47 +713,202 @@ export function computeTotaisFluxoFuturo(rows: FinanceiroRow[]): TotaisFluxoFutu
   return { aReceber, aPagar, saldo: aReceber - aPagar, aReceberVencido, aPagarVencido }
 }
 
+// SPEC-286 (Filippo, 13/11/2026): cada despesa operacional cai numa categoria de custo, e cada
+// categoria é fixa ou variável. A classificação é feita aqui, pela apropriação (`descricao`) e, no
+// que sobrar, pelo sub-grupo. Substitui o `tipo_custo` da view (default de 13/07, nunca validado),
+// que contava o prêmio de vendas como fixo e deixava aluguel e despesas dos sócios em "outro".
+export type TipoCustoCategoria = 'fixo' | 'variavel'
+
+export type CategoriaCustoId =
+  | 'produtos'
+  | 'impostos'
+  | 'comissoes'
+  | 'rt'
+  | 'fretes'
+  | 'pessoal'
+  | 'estrutura'
+  | 'veiculos'
+  | 'marketing'
+  | 'socios'
+  | 'investimentos'
+  | 'outros'
+
+export interface CategoriaCustoDef {
+  id: CategoriaCustoId
+  nome: string
+  tipo: TipoCustoCategoria
+}
+
+export const CATEGORIAS_CUSTO: CategoriaCustoDef[] = [
+  { id: 'produtos', nome: 'Produtos', tipo: 'variavel' },
+  { id: 'impostos', nome: 'Impostos sobre vendas', tipo: 'variavel' },
+  { id: 'comissoes', nome: 'Comissões da equipe', tipo: 'variavel' },
+  { id: 'rt', nome: 'RT e pontos de arquitetos', tipo: 'variavel' },
+  { id: 'fretes', nome: 'Fretes', tipo: 'variavel' },
+  { id: 'pessoal', nome: 'Pessoal', tipo: 'fixo' },
+  { id: 'estrutura', nome: 'Estrutura', tipo: 'fixo' },
+  { id: 'veiculos', nome: 'Veículos', tipo: 'fixo' },
+  { id: 'marketing', nome: 'Marketing', tipo: 'fixo' },
+  { id: 'socios', nome: 'Despesas dos sócios', tipo: 'fixo' },
+  { id: 'investimentos', nome: 'Investimentos', tipo: 'fixo' },
+  { id: 'outros', nome: 'Outros', tipo: 'fixo' },
+]
+
+const CATEGORIA_POR_ID = new Map(CATEGORIAS_CUSTO.map((c) => [c.id, c]))
+
+const CATEGORIA_POR_APROPRIACAO: Record<string, CategoriaCustoId> = {
+  'COMPRAS - REVENDA': 'produtos',
+  INDUSTRIALIZAÇÃO: 'produtos',
+  IMPORTAÇÃO: 'produtos',
+  'SINAL DE COMPRA': 'produtos',
+  'DAS NACIONAL': 'impostos',
+  'DARE-ICMS': 'impostos',
+  COFINS: 'impostos',
+  PIS: 'impostos',
+  IRPJ: 'impostos',
+  CSLL: 'impostos',
+  ISSQN: 'impostos',
+  'PRÊMIO DE VENDAS': 'comissoes',
+  RT: 'rt',
+  'CLUBE MAIS PONTOS': 'rt',
+  'FRETE ENTRADA': 'fretes',
+  'FRETE SAÍDA': 'fretes',
+  CORREIOS: 'fretes',
+  'TAXIS / FRETES ADM': 'fretes',
+  PUBLICIDADE: 'marketing',
+  'CLUBE MAIS MENSAL': 'marketing',
+  ALUGUEL: 'estrutura',
+  'ALUGUEL SÃO PAULO': 'estrutura',
+  'CONDOMINIO - SÃO PAULO': 'estrutura',
+  'MANUTENÇÃO CONTA': 'estrutura',
+  'AUTOMAÇÕES - IA': 'estrutura',
+}
+
+const SUBGRUPOS_ESTRUTURA = new Set(['ADMINISTRATIVAS', 'FIXAS', 'BANCARIAS'])
+
+const maiusculo = (s: string | null) => (s ?? '').trim().toUpperCase()
+
+/** Categoria de custo de uma linha de despesa (SPEC-286). */
+export function categoriaCustoDe(r: FinanceiroRow): CategoriaCustoId {
+  if (GRUPO_INVESTIMENTO_RE.test(r.desc_grupo ?? '')) return 'investimentos'
+  const porApropriacao = CATEGORIA_POR_APROPRIACAO[maiusculo(r.descricao)]
+  if (porApropriacao) return porApropriacao
+  const subGrupo = maiusculo(r.desc_sub_grupo)
+  if (subGrupo === 'OPERACIONAL') return 'socios'
+  if (subGrupo === 'COM PESSOAL') return 'pessoal'
+  if (subGrupo === 'VEICULOS') return 'veiculos'
+  if (subGrupo === 'PRODUTOS') return 'produtos'
+  if (SUBGRUPOS_ESTRUTURA.has(subGrupo)) return 'estrutura'
+  return 'outros'
+}
+
+const despesaOperacionalRealizada = (r: FinanceiroRow) =>
+  r.tipo === 'despesa' && realizado(r) && r.natureza === 'despesa_operacional'
+
+/** Fixo ou variável de uma linha; `null` para o que não é despesa operacional. */
+export function tipoCustoDe(r: FinanceiroRow): TipoCustoCategoria | null {
+  if (r.tipo !== 'despesa' || r.natureza !== 'despesa_operacional') return null
+  return CATEGORIA_POR_ID.get(categoriaCustoDe(r))!.tipo
+}
+
+export interface CustoCategoria extends CategoriaCustoDef {
+  total: number
+  /** apropriações que compõem a categoria no período, da maior para a menor. */
+  itens: { descricao: string; total: number }[]
+}
+
+/** Despesa operacional realizada por categoria, da maior para a menor (só as que têm valor). */
+export function computeCustosPorCategoria(rows: FinanceiroRow[]): CustoCategoria[] {
+  const totais = new Map<CategoriaCustoId, { total: number; itens: Map<string, number> }>()
+  for (const r of rows) {
+    if (!despesaOperacionalRealizada(r)) continue
+    const id = categoriaCustoDe(r)
+    let b = totais.get(id)
+    if (!b) {
+      b = { total: 0, itens: new Map() }
+      totais.set(id, b)
+    }
+    b.total += r.vl_pago
+    const descricao = r.descricao || 'SEM DESCRIÇÃO'
+    b.itens.set(descricao, (b.itens.get(descricao) ?? 0) + r.vl_pago)
+  }
+  return CATEGORIAS_CUSTO.filter((c) => (totais.get(c.id)?.total ?? 0) !== 0)
+    .map((c) => {
+      const b = totais.get(c.id)!
+      return {
+        ...c,
+        total: b.total,
+        itens: Array.from(b.itens.entries())
+          .map(([descricao, total]) => ({ descricao, total }))
+          .sort((x, y) => y.total - x.total),
+      }
+    })
+    .sort((a, b) => b.total - a.total)
+}
+
 export interface CustoFixoVariavel {
   fixo: number
   variavel: number
-  outro: number
 }
 
 export function computeCustoFixoVariavel(rows: FinanceiroRow[]): CustoFixoVariavel {
   let fixo = 0
   let variavel = 0
-  let outro = 0
   for (const r of rows) {
-    if (r.tipo !== 'despesa' || !realizado(r) || r.natureza !== 'despesa_operacional') continue
-    if (r.tipo_custo === 'fixo') fixo += r.vl_pago
-    else if (r.tipo_custo === 'variavel') variavel += r.vl_pago
-    else outro += r.vl_pago
+    if (!despesaOperacionalRealizada(r)) continue
+    if (tipoCustoDe(r) === 'variavel') variavel += r.vl_pago
+    else fixo += r.vl_pago
   }
-  return { fixo, variavel, outro }
+  return { fixo, variavel }
 }
 
 export interface PontoEquilibrio {
-  custoFixo: number
   receitaRealizada: number
-  resultado: number
+  custoVariavel: number
+  custoFixo: number
+  distribuicaoLucro: number
+  /** (receita − variáveis) / receita; null sem receita no período. */
+  margemContribuicao: number | null
+  /** receita necessária para ficar no zero; null sem receita ou com margem ≤ 0. */
+  receitaEquilibrio: number | null
+  /** receita realizada − receita de equilíbrio. */
+  diferenca: number | null
   atingiuPontoEquilibrio: boolean
 }
 
 /**
- * Ponto de equilíbrio simplificado (reunião 13-07-2026): "se eu vender menos
- * que o custo fixo do mês, eu perco dinheiro". Não considera margem de
- * contribuição por produto — é a leitura literal do que foi pedido.
+ * Ponto de equilíbrio (SPEC-286): quanto é preciso receber no período para pagar os custos fixos
+ * e a distribuição de lucro, dado que de cada real recebido só a margem de contribuição sobra
+ * depois dos custos variáveis (produto, imposto, comissão, RT, frete).
+ *
+ *   receita de equilíbrio = (custo fixo + distribuição de lucro) / margem de contribuição
+ *
+ * Base caixa, como o resto da tela. A distribuição só chega para quem pode vê-la (o banco filtra).
  */
 export function computePontoEquilibrio(rows: FinanceiroRow[]): PontoEquilibrio {
-  const { fixo } = computeCustoFixoVariavel(rows)
+  const { fixo, variavel } = computeCustoFixoVariavel(rows)
   let receitaRealizada = 0
+  let distribuicaoLucro = 0
   for (const r of rows) {
-    if (r.tipo === 'receita' && realizado(r)) receitaRealizada += r.vl_pago
+    if (!realizado(r)) continue
+    if (r.tipo === 'receita') receitaRealizada += r.vl_pago
+    else if (r.natureza === 'distribuicao_lucro') distribuicaoLucro += r.vl_pago
   }
+  const margemContribuicao =
+    receitaRealizada > 0 ? (receitaRealizada - variavel) / receitaRealizada : null
+  const receitaEquilibrio =
+    margemContribuicao !== null && margemContribuicao > 0
+      ? (fixo + distribuicaoLucro) / margemContribuicao
+      : null
+  const diferenca = receitaEquilibrio === null ? null : receitaRealizada - receitaEquilibrio
   return {
-    custoFixo: fixo,
     receitaRealizada,
-    resultado: receitaRealizada - fixo,
-    atingiuPontoEquilibrio: receitaRealizada >= fixo,
+    custoVariavel: variavel,
+    custoFixo: fixo,
+    distribuicaoLucro,
+    margemContribuicao,
+    receitaEquilibrio,
+    diferenca,
+    atingiuPontoEquilibrio: diferenca !== null && diferenca >= 0,
   }
 }
