@@ -1,7 +1,4 @@
-import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { supabase } from '@/lib/supabase/client'
-import { getUsuarioRoleCached } from '@/lib/usuario-role-cache'
 import {
   LayoutDashboard,
   Landmark,
@@ -15,7 +12,6 @@ import {
   History,
   Settings,
   Tags,
-  ArrowLeftRight,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -42,7 +38,6 @@ const itemsFinanceiro = [
 const itemsEstoque = [
   { title: 'Estoque', url: '/estoque', icon: Boxes },
   { title: 'Showroom', url: '/showroom', icon: ShoppingBag },
-  { title: 'Movimentação do item', url: '/movimentacao-item', icon: ArrowLeftRight },
 ]
 
 const itemsSistema = [
@@ -72,15 +67,6 @@ function NavGroup({ items, pathname }: { items: NavItem[]; pathname: string }) {
 
 export function AppSidebar() {
   const { pathname } = useLocation()
-  // SPEC-319: "Movimentação do item" só para administrador (a RPC confere de novo)
-  const [admin, setAdmin] = useState(false)
-  useEffect(() => {
-    supabase.auth.getUser().then(async ({ data }) => {
-      const id = data.user?.id
-      if (id) setAdmin((await getUsuarioRoleCached(id)) === 'admin')
-    })
-  }, [])
-  const estoque = itemsEstoque.filter((i) => i.url !== '/movimentacao-item' || admin)
 
   return (
     <Sidebar variant="inset">
@@ -104,7 +90,7 @@ export function AppSidebar() {
             Operações
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <NavGroup items={estoque} pathname={pathname} />
+            <NavGroup items={itemsEstoque} pathname={pathname} />
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
