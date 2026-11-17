@@ -13,7 +13,6 @@ const num = (v: number | null) => (v == null ? '' : v.toLocaleString('pt-BR', { 
 const fmtData = (iso: string) =>
   new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 const hoje = () => new Date().toLocaleDateString('sv-SE')
-const inicioDoMes = () => hoje().slice(0, 8) + '01'
 
 const TIPO_LABEL: Record<string, string> = { E: 'E', S: 'S', D: 'D', T: 'T', I: 'Inicial', '': '' }
 
@@ -26,8 +25,8 @@ export default function MovimentacaoItem() {
   // SPEC-319: ?todas=1 (botão do Cadastro sem peça selecionada) abre já com o histórico de todas as peças
   const abrirBuscando = !!codigoUrl || params.get('todas') === '1'
   const [codigo, setCodigo] = useState(codigoUrl)
-  // vindo do atalho do Cadastro (?codigo=): abre já com o ano todo para não esconder movimento
-  const [inicio, setInicio] = useState(codigoUrl ? '2026-01-01' : inicioDoMes())
+  // SPEC-319: começa SEM data inicial = tudo o que temos registrado (desde a implantação do kardex, 28/10/2026)
+  const [inicio, setInicio] = useState('')
   const [fim, setFim] = useState(hoje())
   const [setor, setSetor] = useState('todos')
   const [rows, setRows] = useState<MovimentoItem[] | null>(null)
@@ -178,7 +177,7 @@ export default function MovimentacaoItem() {
             rows={rows}
             nomeArquivo={umaPeca ? `movimentacao-${produto.codigo_produto}` : 'movimentacao-todas-as-pecas'}
             chaveLinha={(r) => String(r.ordem)}
-            limiteRender={2000}
+            limiteRender={5000}
           />
         </>
       )}
