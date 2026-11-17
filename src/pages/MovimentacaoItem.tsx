@@ -23,6 +23,8 @@ const TIPO_COR: Record<string, string> = { D: 'text-emerald-700 font-semibold', 
 export default function MovimentacaoItem() {
   const [params] = useSearchParams()
   const codigoUrl = params.get('codigo') ?? ''
+  // SPEC-319: ?todas=1 (botão do Cadastro sem peça selecionada) abre já com o histórico de todas as peças
+  const abrirBuscando = !!codigoUrl || params.get('todas') === '1'
   const [codigo, setCodigo] = useState(codigoUrl)
   // vindo do atalho do Cadastro (?codigo=): abre já com o ano todo para não esconder movimento
   const [inicio, setInicio] = useState(codigoUrl ? '2026-01-01' : inicioDoMes())
@@ -34,8 +36,8 @@ export default function MovimentacaoItem() {
 
   const todos = setor === 'todos'
 
+  // código vazio = todas as peças no período (ordem cronológica)
   const buscar = async (cod: string = codigo) => {
-    if (!cod.trim()) return
     setIsLoading(true)
     setError(null)
     try {
@@ -49,13 +51,14 @@ export default function MovimentacaoItem() {
   }
 
   useEffect(() => {
-    if (codigoUrl) buscar(codigoUrl)
+    if (abrirBuscando) buscar(codigoUrl)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const colunas = useMemo<ColunaPlanilha<MovimentoItem>[]>(() => {
     const cols: ColunaPlanilha<MovimentoItem>[] = [
       { chave: 'codigo', titulo: 'Código', texto: (r) => String(r.codigo_produto), alinhar: 'right' },
+      ...(codigo.trim() ? [] : [{ chave: 'produto', titulo: 'Peça', texto: (r: MovimentoItem) => r.produto }]),
       { chave: 'data', titulo: 'Data', texto: (r) => (r.tipo === '' ? '' : fmtData(r.data)), ordenar: (r) => r.ordem },
       { chave: 'historico', titulo: 'Histórico', texto: (r) => r.historico ?? '' },
       { chave: 'nota', titulo: 'Nota', texto: (r) => r.nota ?? '' },
@@ -78,6 +81,8 @@ export default function MovimentacaoItem() {
   }, [todos])
 
   const produto = rows?.[0]
+  // busca por uma peça: cabeçalho com saldo; busca geral: só a contagem
+  const umaPeca = rows ? new Set(rows.map((r) => r.codigo_produto)).size === 1 : false
   const saldoFinal = rows && rows.length > 0 ? rows[rows.length - 1].saldo_geral : null
 
   return (
@@ -102,7 +107,7 @@ export default function MovimentacaoItem() {
           >
             <div className="space-y-2">
               <Label>Código da peça</Label>
-              <Input inputMode="numeric" placeholder="Ex.: 12822" value={codigo} onChange={(e) => setCodigo(e.target.value)} />
+              <Input inputMode="numeric" placeholder="Vazio = todas as peças" value={codigo} onChange={(e) => setCodigo(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>De</Label>
@@ -128,7 +133,7 @@ export default function MovimentacaoItem() {
                 </SelectContent>
               </Select>
             </div>
-            <Button type="submit" disabled={isLoading || !codigo.trim()}>
+            <Button type="submit" disabled={isLoading}>
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
               Buscar
             </Button>
@@ -151,12 +156,19 @@ export default function MovimentacaoItem() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">
-                {produto.codigo_produto} — {produto.produto}
+                {umaPeca ? `${produto.codigo_produto} — ${produto.produto}` : 'Todas as peças — ordem cronológica'}
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground">
-              Saldo no fim do período{todos ? '' : ` (${setor})`}:{' '}
-              <span className="font-semibold text-foreground">{num(saldoFinal)}</span> · E entrada de nota · S saída (venda) · D
+              {umaPeca ? (
+                <>
+                  Saldo no fim do período{todos ? '' : ` (${setor})`}:{' '}
+                  <span className="font-semibold text-foreground">{num(saldoFinal)}</span>
+                </>
+              ) : (
+                <>{rows?.length} movimentos no período (o saldo de cada linha é da própria peça)</>
+              )}{' '}
+              · E entrada de nota · S saída (venda) · D
               devolução (soma no saldo) · T transferência entre setores
             </CardContent>
           </Card>
@@ -164,7 +176,7 @@ export default function MovimentacaoItem() {
             titulo="Movimentos"
             colunas={colunas}
             rows={rows}
-            nomeArquivo={`movimentacao-${produto.codigo_produto}`}
+            nomeArquivo={umaPeca ? `movimentacao-${produto.codigo_produto}` : 'movimentacao-todas-as-pecas'}
             chaveLinha={(r) => String(r.ordem)}
             limiteRender={2000}
           />
