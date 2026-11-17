@@ -11,7 +11,7 @@ export interface MovimentoItem {
   codigo_produto: number
   produto: string
   historico: string
-  /** E entrada · S saída · T transferência entre setores · I saldo inicial · '' saldo anterior */
+  /** E entrada · S saída · D devolução · T transferência entre setores · I saldo inicial · '' saldo anterior */
   tipo: string
   quantidade: number | null
   saldo_setor: number
@@ -19,9 +19,18 @@ export interface MovimentoItem {
   setor: string
   usuario: string | null
   sistema: string | null
+  /** SPEC-319: nota e fornecedor (entrada/cancelamento de NF); venda e cliente (venda, devolução, MOV de venda) */
+  nota: string | null
+  fornecedor: string | null
+  venda: string | null
+  cliente: string | null
 }
 
-export const SETORES_KARDEX = ['Estoque', 'Showroom'] as const
+// valor = nome gravado no kardex; rótulo = como a equipe fala
+export const SETORES_KARDEX = [
+  { valor: 'Estoque', rotulo: 'Estoque Geral' },
+  { valor: 'Showroom', rotulo: 'Showroom' },
+] as const
 
 export async function fetchMovimentacaoItem(params: {
   codigo: string

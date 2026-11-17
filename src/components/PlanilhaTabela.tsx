@@ -19,6 +19,8 @@ export interface ColunaPlanilha<T> {
   /** Valor usado para ordenar. Se devolver número, ordena numérico. Default: `texto`. */
   ordenar?: (row: T) => string | number
   alinhar?: 'left' | 'right'
+  /** Classe extra da célula (ex.: cor do tipo). */
+  classe?: (row: T) => string
 }
 
 type Dir = 'asc' | 'desc'
@@ -158,6 +160,7 @@ export default function PlanilhaTabela<T>({
                         className={cn(
                           'whitespace-nowrap px-3 py-1.5',
                           c.alinhar === 'right' && 'text-right tabular-nums',
+                          c.classe?.(r),
                         )}
                       >
                         {c.texto(r)}

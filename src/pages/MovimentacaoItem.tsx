@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,11 +15,17 @@ const fmtData = (iso: string) =>
 const hoje = () => new Date().toLocaleDateString('sv-SE')
 const inicioDoMes = () => hoje().slice(0, 8) + '01'
 
-const TIPO_LABEL: Record<string, string> = { E: 'E', S: 'S', T: 'T', I: 'Inicial', '': '' }
+const TIPO_LABEL: Record<string, string> = { E: 'E', S: 'S', D: 'D', T: 'T', I: 'Inicial', '': '' }
+
+// SPEC-319: devolução e transferência ganham cor para o olho achar rápido na conferência
+const TIPO_COR: Record<string, string> = { D: 'text-emerald-700 font-semibold', T: 'text-blue-700 font-semibold' }
 
 export default function MovimentacaoItem() {
-  const [codigo, setCodigo] = useState('')
-  const [inicio, setInicio] = useState(inicioDoMes())
+  const [params] = useSearchParams()
+  const codigoUrl = params.get('codigo') ?? ''
+  const [codigo, setCodigo] = useState(codigoUrl)
+  // vindo do atalho do Cadastro (?codigo=): abre já com o ano todo para não esconder movimento
+  const [inicio, setInicio] = useState(codigoUrl ? '2026-01-01' : inicioDoMes())
   const [fim, setFim] = useState(hoje())
   const [setor, setSetor] = useState('todos')
   const [rows, setRows] = useState<MovimentoItem[] | null>(null)
@@ -27,12 +34,12 @@ export default function MovimentacaoItem() {
 
   const todos = setor === 'todos'
 
-  const buscar = async () => {
-    if (!codigo.trim()) return
+  const buscar = async (cod: string = codigo) => {
+    if (!cod.trim()) return
     setIsLoading(true)
     setError(null)
     try {
-      setRows(await fetchMovimentacaoItem({ codigo, inicio, fim, setor: todos ? null : setor }))
+      setRows(await fetchMovimentacaoItem({ codigo: cod, inicio, fim, setor: todos ? null : setor }))
     } catch (e: any) {
       setRows(null)
       setError(e?.message || 'Não foi possível carregar a movimentação.')
@@ -41,12 +48,21 @@ export default function MovimentacaoItem() {
     }
   }
 
+  useEffect(() => {
+    if (codigoUrl) buscar(codigoUrl)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const colunas = useMemo<ColunaPlanilha<MovimentoItem>[]>(() => {
     const cols: ColunaPlanilha<MovimentoItem>[] = [
       { chave: 'codigo', titulo: 'Código', texto: (r) => String(r.codigo_produto), alinhar: 'right' },
       { chave: 'data', titulo: 'Data', texto: (r) => (r.tipo === '' ? '' : fmtData(r.data)), ordenar: (r) => r.ordem },
       { chave: 'historico', titulo: 'Histórico', texto: (r) => r.historico ?? '' },
-      { chave: 'tipo', titulo: 'Tipo', texto: (r) => TIPO_LABEL[r.tipo] ?? r.tipo },
+      { chave: 'nota', titulo: 'Nota', texto: (r) => r.nota ?? '' },
+      { chave: 'fornecedor', titulo: 'Fornecedor', texto: (r) => r.fornecedor ?? '' },
+      { chave: 'venda', titulo: 'Venda', texto: (r) => r.venda ?? '' },
+      { chave: 'cliente', titulo: 'Cliente', texto: (r) => r.cliente ?? '' },
+      { chave: 'tipo', titulo: 'Tipo', texto: (r) => TIPO_LABEL[r.tipo] ?? r.tipo, classe: (r) => TIPO_COR[r.tipo] ?? '' },
       { chave: 'quantidade', titulo: 'Movimentação', texto: (r) => num(r.quantidade), ordenar: (r) => r.quantidade ?? 0, alinhar: 'right' },
       { chave: 'saldo_setor', titulo: 'Saldo', texto: (r) => num(r.saldo_setor), ordenar: (r) => r.saldo_setor, alinhar: 'right' },
     ]
@@ -56,6 +72,7 @@ export default function MovimentacaoItem() {
     cols.push(
       { chave: 'setor', titulo: 'Setor', texto: (r) => r.setor },
       { chave: 'usuario', titulo: 'Usuário', texto: (r) => r.usuario ?? '' },
+      { chave: 'sistema', titulo: 'Sistema', texto: (r) => r.sistema ?? '' },
     )
     return cols
   }, [todos])
@@ -69,7 +86,8 @@ export default function MovimentacaoItem() {
         <h1 className="text-2xl font-bold tracking-tight">Movimentação do item</h1>
         <p className="text-sm text-muted-foreground">
           O que aconteceu no estoque da empresa: venda aprovada já é saída (S), mesmo com a peça ainda reservada; a
-          entrega ao cliente não aparece. Histórico a partir da implantação do relatório (27/10/2026).
+          entrega ao cliente não aparece. Devolução (D) soma no saldo. Visível só para a Administração. Histórico a
+          partir da implantação do relatório (27/10/2026).
         </p>
       </div>
 
@@ -103,8 +121,8 @@ export default function MovimentacaoItem() {
                 <SelectContent>
                   <SelectItem value="todos">Todos</SelectItem>
                   {SETORES_KARDEX.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
+                    <SelectItem key={s.valor} value={s.valor}>
+                      {s.rotulo}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -138,8 +156,8 @@ export default function MovimentacaoItem() {
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground">
               Saldo no fim do período{todos ? '' : ` (${setor})`}:{' '}
-              <span className="font-semibold text-foreground">{num(saldoFinal)}</span> · E entrada · S saída · T
-              transferência entre setores
+              <span className="font-semibold text-foreground">{num(saldoFinal)}</span> · E entrada de nota · S saída (venda) · D
+              devolução (soma no saldo) · T transferência entre setores
             </CardContent>
           </Card>
           <PlanilhaTabela
